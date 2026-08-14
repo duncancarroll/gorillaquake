@@ -280,6 +280,54 @@ int ClipVelocity(
     return blocked;
 }
 
+[[nodiscard]] bool SV_GorillaCollisionActiveForPlayer(
+    const edict_t* const ent) noexcept
+{
+    return vr_gorilla_locomotion.value != 0.f && ent == sv_player &&
+           ent->v.health > 0 && ent->v.movetype == MOVETYPE_WALK;
+}
+
+bool SV_GorillaBounceBodyFromTrace(
+    edict_t* const ent, const trace_t& trace, const qvec3& incomingVelocity)
+{
+    if(!SV_GorillaCollisionActiveForPlayer(ent) || !trace.ent ||
+        quake::util::traceHitGround(trace))
+    {
+        return false;
+    }
+
+    const qvec3 normal = trace.plane.normal;
+    const qfloat inwardSpeed = DotProduct(incomingVelocity, normal);
+    if(inwardSpeed >= -20._qf)
+    {
+        return false;
+    }
+
+    constexpr qfloat restitution = 0.55_qf;
+    qvec3 bounceVelocity =
+        incomingVelocity - normal * ((1._qf + restitution) * inwardSpeed);
+
+    constexpr qfloat minOutwardSpeed = 90._qf;
+    const qfloat outwardSpeed = DotProduct(bounceVelocity, normal);
+    if(outwardSpeed < minOutwardSpeed)
+    {
+        bounceVelocity += normal * (minOutwardSpeed - outwardSpeed);
+    }
+
+    const qfloat maxBounceSpeed = std::max(
+        static_cast<qfloat>(vr_gorilla_max_jump_speed.value), 1400._qf) *
+                                  0.5_qf;
+    const qfloat bounceSpeed = glm::length(bounceVelocity);
+    if(bounceSpeed > maxBounceSpeed)
+    {
+        bounceVelocity = safeNormalize(bounceVelocity) * maxBounceSpeed;
+    }
+
+    ent->v.velocity = bounceVelocity;
+    quake::util::removeFlag(ent, FL_ONGROUND);
+    return true;
+}
+
 /*
 ============
 SV_FlyMove
@@ -979,6 +1027,11 @@ void SV_WalkMove(edict_t* ent, const bool resetOnGround)
     trace_t steptrace;
     int clip = SV_FlyMove(ent, host_frametime, &steptrace);
 
+    if((clip & 2) && SV_GorillaBounceBodyFromTrace(ent, steptrace, oldvel))
+    {
+        return;
+    }
+
     if(!(clip & 2))
     {
         return; // move didn't block on a step
@@ -994,7 +1047,7 @@ void SV_WalkMove(edict_t* ent, const bool resetOnGround)
         return; // gibbed by a trigger
     }
 
-    if(sv_nostep.value)
+    if(sv_nostep.value || (vr_gorilla_locomotion.value && ent == sv_player))
     {
         return;
     }
@@ -1209,6 +1262,7 @@ void SV_VRWpntouch(edict_t* ent)
 namespace
 {
 constexpr int cGorillaMaxVelocityHistory = 32;
+constexpr double cGorillaPostLaunchAnchorIgnoreSeconds = 0.12;
 
 struct GorillaHandState
 {
@@ -1223,6 +1277,7 @@ struct GorillaLocomotionState
     std::array<qvec3, cGorillaMaxVelocityHistory> velocityHistory{};
     qvec3 velocityAverage{vec3_zero};
     qvec3 lastOrigin{vec3_zero};
+    double ignoreAnchorUntilTime{0.0};
     double nextDebugPrintTime{0.0};
     int velocityIndex{0};
     int velocityCount{0};
@@ -1230,6 +1285,45 @@ struct GorillaLocomotionState
 
 std::vector<GorillaLocomotionState> gorillaLocomotionStates;
 double gorillaNextInactiveDebugPrintTime{0.0};
+
+[[nodiscard]] bool SV_GorillaLocomotionActiveForPlayer(
+    const edict_t* const ent) noexcept
+{
+    return vr_gorilla_locomotion.value != 0.f && ent->v.health > 0 &&
+           ent->v.movetype == MOVETYPE_WALK;
+}
+
+[[nodiscard]] qvec3 SV_GorillaPlayerHullMins() noexcept
+{
+    // Quake BSPs only provide point, player, and large monster hulls. Keep the
+    // Gorilla body under a 3-unit diameter so world collision uses point hull 0
+    // instead of the baked 56-unit-tall player hull.
+    const qfloat radius = std::clamp(
+        static_cast<qfloat>(vr_gorilla_body_radius.value), 0.25_qf, 1.4_qf);
+    return {-radius, -radius, -radius};
+}
+
+[[nodiscard]] qvec3 SV_GorillaPlayerHullMaxs() noexcept
+{
+    const qfloat radius = std::clamp(
+        static_cast<qfloat>(vr_gorilla_body_radius.value), 0.25_qf, 1.4_qf);
+    return {radius, radius, radius};
+}
+
+void SV_GorillaUpdatePlayerHull(edict_t* const ent) noexcept
+{
+    const qvec3 mins = SV_GorillaLocomotionActiveForPlayer(ent)
+                           ? SV_GorillaPlayerHullMins()
+                           : qvec3{-16.f, -16.f, -24.f};
+
+    const qvec3 maxs = SV_GorillaLocomotionActiveForPlayer(ent)
+                           ? SV_GorillaPlayerHullMaxs()
+                           : qvec3{16.f, 16.f, 32.f};
+
+    ent->v.mins = mins;
+    ent->v.maxs = maxs;
+    ent->v.size = maxs - mins;
+}
 
 [[nodiscard]] bool SV_GorillaDebugEnabled() noexcept
 {
@@ -1430,22 +1524,63 @@ void SV_GorillaStoreVelocity(
         host_frametime > 0.0 ? movement / static_cast<qfloat>(host_frametime)
                              : vec3_zero;
 
-    if(state.velocityCount < historySize)
+    state.velocityIndex = (state.velocityIndex + 1) % historySize;
+    const qvec3 oldestVelocity = state.velocityHistory[state.velocityIndex];
+    state.velocityAverage +=
+        (frameVelocity - oldestVelocity) / static_cast<qfloat>(historySize);
+    state.velocityHistory[state.velocityIndex] = frameVelocity;
+    state.velocityCount = std::min(state.velocityCount + 1, historySize);
+}
+
+[[nodiscard]] qfloat SV_GorillaCmdHandVelocityMagnitude(
+    const usercmd_t& move, const int hand) noexcept
+{
+    return hand == cVR_OffHand ? move.offhandvelmag : move.handvelmag;
+}
+
+[[nodiscard]] bool SV_GorillaLaunchContactIsIntentional(
+    const usercmd_t& move, const std::array<bool, 2>& colliding,
+    const std::array<bool, 2>& previousTouching)
+{
+    constexpr qfloat minNewContactHandSpeed = 0.75_qf;
+    bool hasNewContact = false;
+    for(int hand = 0; hand < 2; ++hand)
     {
-        state.velocityHistory[state.velocityCount++] = frameVelocity;
-    }
-    else
-    {
-        state.velocityHistory[state.velocityIndex] = frameVelocity;
-        state.velocityIndex = (state.velocityIndex + 1) % historySize;
+        if(!colliding[hand])
+        {
+            continue;
+        }
+
+        if(previousTouching[hand])
+        {
+            return true;
+        }
+
+        hasNewContact = true;
+        if(SV_GorillaCmdHandVelocityMagnitude(move, hand) >=
+            minNewContactHandSpeed)
+        {
+            return true;
+        }
     }
 
-    state.velocityAverage = vec3_zero;
-    for(int i = 0; i < state.velocityCount; ++i)
+    return !hasNewContact;
+}
+
+[[nodiscard]] qfloat SV_GorillaMaxCollidingHandSpeed(
+    const usercmd_t& move, const std::array<bool, 2>& colliding) noexcept
+{
+    qfloat handSpeed = 0._qf;
+    for(int hand = 0; hand < 2; ++hand)
     {
-        state.velocityAverage += state.velocityHistory[i];
+        if(colliding[hand])
+        {
+            handSpeed = std::max(
+                handSpeed, SV_GorillaCmdHandVelocityMagnitude(move, hand));
+        }
     }
-    state.velocityAverage /= static_cast<qfloat>(state.velocityCount);
+
+    return handSpeed;
 }
 
 void SV_GorillaResetState(
@@ -1473,26 +1608,95 @@ void SV_GorillaResetState(
     }
 }
 
-bool SV_GorillaApplyLaunch(
-    GorillaLocomotionState& state, edict_t* const ent, qvec3& launch)
+void SV_GorillaClearAnchoredVelocity(edict_t* const ent);
+
+bool SV_GorillaApplyLaunch(GorillaLocomotionState& state, edict_t* const ent,
+    const qvec3& bodyMovement, const qfloat collidingHandSpeed,
+    const bool launchContactIntentional, qvec3& launch)
 {
-    const qfloat speed = glm::length(state.velocityAverage);
-    if(speed <= vr_gorilla_velocity_limit.value)
+    const qfloat velocityLimit = std::max(
+        static_cast<qfloat>(vr_gorilla_velocity_limit.value), 95._qf);
+
+    if(!launchContactIntentional)
     {
         launch = vec3_zero;
         return false;
     }
 
-    launch = state.velocityAverage *
-             static_cast<qfloat>(vr_gorilla_jump_multiplier.value);
-
-    const qfloat launchSpeed = glm::length(launch);
-    if(launchSpeed > vr_gorilla_max_jump_speed.value)
+    const qvec3 currentVelocity =
+        host_frametime > 0.0 ? bodyMovement / static_cast<qfloat>(host_frametime)
+                             : vec3_zero;
+    const qfloat currentSpeed = glm::length(currentVelocity);
+    if(currentSpeed <= velocityLimit * 0.35_qf)
     {
-        launch = safeNormalize(launch) *
-                 static_cast<qfloat>(vr_gorilla_max_jump_speed.value);
+        launch = vec3_zero;
+        return false;
     }
 
+    const qfloat speed = glm::length(state.velocityAverage);
+    const bool averageFastEnough = speed > velocityLimit;
+    const bool currentFastEnough = currentSpeed > velocityLimit;
+    if(!averageFastEnough && !currentFastEnough)
+    {
+        launch = vec3_zero;
+        return false;
+    }
+
+    const qfloat jumpMultiplier = std::max(
+        static_cast<qfloat>(vr_gorilla_jump_multiplier.value), 8._qf) *
+                                  0.5_qf;
+
+    const qvec3 launchDirection = currentVelocity / currentSpeed;
+    qfloat launchSourceSpeed = averageFastEnough ? speed : currentSpeed;
+    if(averageFastEnough)
+    {
+        const qvec3 averageDirection = state.velocityAverage / speed;
+        const qfloat averageAlignment =
+            DotProduct(averageDirection, launchDirection);
+        if(averageAlignment < 0.25_qf)
+        {
+            launchSourceSpeed =
+                currentFastEnough ? currentSpeed : std::min(speed, currentSpeed);
+        }
+    }
+
+    if(currentFastEnough && currentSpeed > launchSourceSpeed)
+    {
+        launchSourceSpeed = currentSpeed;
+    }
+
+    constexpr qfloat handMetersPerSecondToQuakeUnits = 95._qf;
+    const qfloat handDrivenSourceSpeed =
+        collidingHandSpeed * handMetersPerSecondToQuakeUnits;
+    if(handDrivenSourceSpeed > launchSourceSpeed)
+    {
+        launchSourceSpeed = handDrivenSourceSpeed;
+    }
+
+    launch = launchDirection * launchSourceSpeed * jumpMultiplier;
+
+    const qfloat maxVerticalSpeed = std::clamp(
+        std::max(static_cast<qfloat>(vr_gorilla_max_vertical_speed.value),
+            360._qf) *
+            0.5_qf,
+        0._qf, 400._qf);
+    if(launch[2] > maxVerticalSpeed)
+    {
+        launch[2] = maxVerticalSpeed;
+    }
+
+    const qfloat launchSpeed = glm::length(launch);
+    const qfloat maxJumpSpeed = std::max(
+        static_cast<qfloat>(vr_gorilla_max_jump_speed.value), 1400._qf) *
+                                 0.5_qf;
+    if(launchSpeed > maxJumpSpeed)
+    {
+        launch = safeNormalize(launch) *
+                 maxJumpSpeed;
+    }
+
+    ent->v.velocity = launch;
+    SV_GorillaClearAnchoredVelocity(ent);
     ent->v.velocity = launch;
     if(launch[2] > 0.f)
     {
@@ -1502,16 +1706,31 @@ bool SV_GorillaApplyLaunch(
     return true;
 }
 
-void SV_GorillaLocomotion(
+void SV_GorillaClearAnchoredVelocity(edict_t* const ent)
+{
+    ent->v.velocity = vec3_zero;
+
+    static int jumpFlagOffset = -2;
+    if(jumpFlagOffset == -2)
+    {
+        jumpFlagOffset = ED_FindFieldOffset("jump_flag");
+    }
+
+    if(eval_t* const jumpFlag = GetEdictFieldValue(ent, jumpFlagOffset))
+    {
+        jumpFlag->_float = 0.f;
+    }
+}
+
+bool SV_GorillaLocomotion(
     edict_t* const ent, const int clientIndex, const usercmd_t& move)
 {
     if(clientIndex < 0)
     {
-        return;
+        return false;
     }
 
-    if(!vr_gorilla_locomotion.value || ent->v.health <= 0 ||
-        ent->v.movetype != MOVETYPE_WALK)
+    if(!SV_GorillaLocomotionActiveForPlayer(ent))
     {
         if(SV_GorillaShouldPrintInactive())
         {
@@ -1526,7 +1745,7 @@ void SV_GorillaLocomotion(
         {
             gorillaLocomotionStates[clientIndex].initialized = false;
         }
-        return;
+        return false;
     }
 
     bool mainFallback;
@@ -1553,7 +1772,7 @@ void SV_GorillaLocomotion(
         {
             gorillaLocomotionStates[clientIndex].initialized = false;
         }
-        return;
+        return false;
     }
 
     if(clientIndex >= static_cast<int>(gorillaLocomotionStates.size()))
@@ -1565,7 +1784,7 @@ void SV_GorillaLocomotion(
     if(!state.initialized)
     {
         SV_GorillaResetState(state, ent, move);
-        return;
+        return false;
     }
 
     const qfloat radius =
@@ -1624,6 +1843,7 @@ void SV_GorillaLocomotion(
     }
 
     qvec3 actualBodyMovement{vec3_zero};
+    bool bodyBounced = false;
     bool playerTraceAllSolid = false;
     bool playerTraceStartSolid = false;
     if(glm::length(bodyMovement) > 0.001_qf)
@@ -1642,6 +1862,16 @@ void SV_GorillaLocomotion(
             for(qvec3& hand : currentHands)
             {
                 hand += actualBodyMovement;
+            }
+
+            if(quake::util::hitSomething(playerTrace))
+            {
+                const qvec3 bodyVelocity =
+                    host_frametime > 0.0
+                        ? bodyMovement / static_cast<qfloat>(host_frametime)
+                        : bodyMovement;
+                bodyBounced = SV_GorillaBounceBodyFromTrace(
+                    ent, playerTrace, bodyVelocity);
             }
         }
     }
@@ -1669,13 +1899,50 @@ void SV_GorillaLocomotion(
         }
     }
 
-    SV_GorillaStoreVelocity(state, actualBodyMovement);
+    const bool launchContactIntentional =
+        SV_GorillaLaunchContactIsIntentional(move, colliding, previousTouching);
+    const qfloat collidingHandSpeed =
+        SV_GorillaMaxCollidingHandSpeed(move, colliding);
+    SV_GorillaStoreVelocity(
+        state, launchContactIntentional ? actualBodyMovement : vec3_zero);
 
     qvec3 launch{vec3_zero};
     bool launched = false;
     if((colliding[cVR_OffHand] || colliding[cVR_MainHand]))
     {
-        launched = SV_GorillaApplyLaunch(state, ent, launch);
+        launched = SV_GorillaApplyLaunch(state, ent, bodyMovement,
+            collidingHandSpeed, launchContactIntentional, launch);
+    }
+
+    if(launched)
+    {
+        state.ignoreAnchorUntilTime =
+            realtime + cGorillaPostLaunchAnchorIgnoreSeconds;
+
+        for(int hand = 0; hand < 2; ++hand)
+        {
+            state.hands[hand].touching = false;
+            colliding[hand] = false;
+        }
+    }
+    else if(realtime < state.ignoreAnchorUntilTime)
+    {
+        for(int hand = 0; hand < 2; ++hand)
+        {
+            if(colliding[hand])
+            {
+                state.hands[hand].touching = false;
+                colliding[hand] = false;
+            }
+        }
+    }
+
+    const bool anyHandContact =
+        colliding[cVR_OffHand] || colliding[cVR_MainHand];
+    const bool handsAnchored = anyHandContact && !launched && !bodyBounced;
+    if(handsAnchored)
+    {
+        SV_GorillaClearAnchoredVelocity(ent);
     }
 
     for(int hand = 0; hand < 2; ++hand)
@@ -1748,6 +2015,23 @@ void SV_GorillaLocomotion(
     }
 
     state.lastOrigin = ent->v.origin;
+    return handsAnchored;
+}
+
+void SV_GorillaStorePostPhysicsOrigin(
+    edict_t* const ent, const int clientIndex) noexcept
+{
+    if(clientIndex < 0 ||
+        clientIndex >= static_cast<int>(gorillaLocomotionStates.size()))
+    {
+        return;
+    }
+
+    GorillaLocomotionState& state = gorillaLocomotionStates[clientIndex];
+    if(state.initialized && SV_GorillaLocomotionActiveForPlayer(ent))
+    {
+        state.lastOrigin = ent->v.origin;
+    }
 }
 } // namespace
 
@@ -1774,6 +2058,8 @@ void SV_Physics_Client(edict_t* ent, int num)
     pr_global_struct->self = EDICT_TO_PROG(ent);
     PR_ExecuteProgram(pr_global_struct->PlayerPreThink);
 
+    SV_GorillaUpdatePlayerHull(ent);
+
     //
     // do a move
     //
@@ -1782,7 +2068,8 @@ void SV_Physics_Client(edict_t* ent, int num)
     //
     // VR hands
     //
-    SV_GorillaLocomotion(ent, num - 1, svs.clients[num - 1].cmd);
+    const bool gorillaHandsAnchored =
+        SV_GorillaLocomotion(ent, num - 1, svs.clients[num - 1].cmd);
     SV_Handtouch(ent);
     SV_VRWpntouch(ent);
 
@@ -1821,14 +2108,17 @@ void SV_Physics_Client(edict_t* ent, int num)
                     return;
                 }
 
-                if(!SV_CheckWater(ent) &&
+                if(!gorillaHandsAnchored && !SV_CheckWater(ent) &&
                     !(quake::util::hasFlag(ent, FL_WATERJUMP)))
                 {
                     SV_AddGravity(ent);
                 }
 
-                SV_CheckStuck(ent);
-                SV_WalkMove(ent, true /* reset onground */);
+                if(!gorillaHandsAnchored)
+                {
+                    SV_CheckStuck(ent);
+                    SV_WalkMove(ent, true /* reset onground */);
+                }
 
                 break;
             }
@@ -1919,6 +2209,8 @@ void SV_Physics_Client(edict_t* ent, int num)
         }
         // --------------------------------------------------------------------
     }
+
+    SV_GorillaStorePostPhysicsOrigin(ent, num - 1);
 
     //
     // call standard player post-think

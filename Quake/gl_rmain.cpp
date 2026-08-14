@@ -1436,8 +1436,11 @@ void R_DrawShadows()
 
     // VR: Draw view entity shadows.
     {
-        const auto playerShadows =
-            quake::util::cvarToEnum<VrPlayerShadows>(vr_player_shadows);
+        const auto playerShadows = vr_gorilla_locomotion.value
+                                       ? VrPlayerShadows::Off
+                                       : quake::util::cvarToEnum<
+                                             VrPlayerShadows>(
+                                             vr_player_shadows);
 
         if(playerShadows == VrPlayerShadows::ViewEntities ||
             playerShadows == VrPlayerShadows::Both)

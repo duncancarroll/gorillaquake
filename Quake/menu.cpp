@@ -1613,12 +1613,24 @@ void M_Options_Key(int k)
         .tooltip("Hand collision radius used by Gorilla Locomotion.");
 
     m.add_cvar_entry<float>(
+         "Gorilla Body Radius", vr_gorilla_body_radius, {0.05f, 0.25f, 1.4f})
+        .tooltip("Player collision radius used while Gorilla Locomotion is enabled.");
+
+    m.add_cvar_entry<float>(
          "Gorilla Arm Length", vr_gorilla_max_arm_length, {1.f, 24.f, 96.f})
         .tooltip("Maximum hand reach from the estimated player head.");
+
+    m.add_cvar_entry<float>("Gorilla Push Mult", vr_gorilla_jump_multiplier,
+         {0.5f, 1.f, 16.f})
+        .tooltip("Launch velocity multiplier for hand-surface push-offs.");
 
     m.add_cvar_entry<float>("Gorilla Jump Speed", vr_gorilla_max_jump_speed,
          {10.f, 100.f, 1200.f})
         .tooltip("Maximum launch velocity from hand-surface pushes.");
+
+    m.add_cvar_entry<float>(
+         "Gorilla Up Speed", vr_gorilla_max_vertical_speed, {10.f, 50.f, 400.f})
+        .tooltip("Maximum upward velocity from hand-surface push-offs.");
 
     // ------------------------------------------------------------------------
     m.add_separator();
