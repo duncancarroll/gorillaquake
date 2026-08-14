@@ -652,6 +652,7 @@ void SV_ReadClientMove(usercmd_t* move)
     // ------------------------------------------------------------------------
     // main hand values:
     host_client->edict->v.handpos = move->handpos = readVec();
+    move->handrawpos = readVec();
     host_client->edict->v.handrot = move->handrot = readVec();
     host_client->edict->v.handvel = move->handvel = readVec();
     host_client->edict->v.handthrowvel = move->handthrowvel = readVec();
@@ -662,6 +663,7 @@ void SV_ReadClientMove(usercmd_t* move)
     // ------------------------------------------------------------------------
     // off hand values:
     host_client->edict->v.offhandpos = move->offhandpos = readVec();
+    move->offhandrawpos = readVec();
     host_client->edict->v.offhandrot = move->offhandrot = readVec();
     host_client->edict->v.offhandvel = move->offhandvel = readVec();
     host_client->edict->v.offhandthrowvel = move->offhandthrowvel = readVec();

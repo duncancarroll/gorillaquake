@@ -198,6 +198,8 @@ static qvec3 lastOrientation{vec3_zero};
 static qvec3 lastAim{vec3_zero};
 
 static bool vr_initialized = false;
+static vr::EVRCompositorError vr_lastSubmitErrorByEye[2] = {
+    vr::VRCompositorError_None, vr::VRCompositorError_None};
 
 static qvec3 headOrigin{vec3_zero};
 static qvec3 lastHeadOrigin{vec3_zero};
@@ -284,6 +286,65 @@ float vr_debug_max_handvelmag_timeout{0.f};
 // ----------------------------------------------------------------------------
 // VR Rendering
 // ----------------------------------------------------------------------------
+
+[[nodiscard]] static const char* VR_CompositorErrorName(
+    const vr::EVRCompositorError error) noexcept
+{
+    switch(error)
+    {
+        case vr::VRCompositorError_None:
+            return "None";
+        case vr::VRCompositorError_RequestFailed:
+            return "RequestFailed";
+        case vr::VRCompositorError_IncompatibleVersion:
+            return "IncompatibleVersion";
+        case vr::VRCompositorError_DoNotHaveFocus:
+            return "DoNotHaveFocus";
+        case vr::VRCompositorError_InvalidTexture:
+            return "InvalidTexture";
+        case vr::VRCompositorError_IsNotSceneApplication:
+            return "IsNotSceneApplication";
+        case vr::VRCompositorError_TextureIsOnWrongDevice:
+            return "TextureIsOnWrongDevice";
+        case vr::VRCompositorError_TextureUsesUnsupportedFormat:
+            return "TextureUsesUnsupportedFormat";
+        case vr::VRCompositorError_SharedTexturesNotSupported:
+            return "SharedTexturesNotSupported";
+        case vr::VRCompositorError_IndexOutOfRange:
+            return "IndexOutOfRange";
+        case vr::VRCompositorError_AlreadySubmitted:
+            return "AlreadySubmitted";
+        case vr::VRCompositorError_InvalidBounds:
+            return "InvalidBounds";
+        case vr::VRCompositorError_AlreadySet:
+            return "AlreadySet";
+    }
+
+    return "Unknown";
+}
+
+static void VR_ReportSubmitError(
+    const vr_eye_t& eye, const vr::EVRCompositorError error) noexcept
+{
+    if(vr_lastSubmitErrorByEye[eye.index] == error)
+    {
+        return;
+    }
+
+    vr_lastSubmitErrorByEye[eye.index] = error;
+
+    Con_Printf("SteamVR Submit failed for %s eye: %s (%d)\n",
+        eye.index == 0 ? "left" : "right", VR_CompositorErrorName(error),
+        static_cast<int>(error));
+
+    if(error == vr::VRCompositorError_TextureIsOnWrongDevice)
+    {
+        Con_Printf(
+            "SteamVR rejected the eye texture because it is on the wrong GPU. "
+            "Check that GL_VENDOR/GL_RENDERER match the headset compositor "
+            "adapter.\n");
+    }
+}
 
 void RecreateTextures(
     fbo_t* const fbo, const int width, const int height) noexcept
@@ -1608,7 +1669,16 @@ static void RenderScreenForCurrentEye_OVR(vr_eye_t& eye)
     vr::Texture_t eyeTexture = {
         reinterpret_cast<void*>(uintptr_t(eye.fbo.texture)),
         vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
-    vr::VRCompositor()->Submit(eye.eye, &eyeTexture);
+
+    const auto submitError = vr::VRCompositor()->Submit(eye.eye, &eyeTexture);
+    if(submitError == vr::VRCompositorError_None)
+    {
+        vr_lastSubmitErrorByEye[eye.index] = vr::VRCompositorError_None;
+    }
+    else
+    {
+        VR_ReportSubmitError(eye, submitError);
+    }
 
     // Reset
     glwidth = oldglwidth;
@@ -1620,7 +1690,10 @@ static void RenderScreenForCurrentEye_OVR(vr_eye_t& eye)
 // Get a reasonable height around where hands should be when aiming a gun.
 [[nodiscard]] float VR_GetHandZOrigin(const qvec3& playerOrigin) noexcept
 {
-    return playerOrigin[2] + vr_floor_offset.value + vr_gun_z_offset.value;
+    const float gorillaDrop =
+        vr_gorilla_locomotion.value ? vr_gorilla_view_drop.value : 0.f;
+    return playerOrigin[2] + vr_floor_offset.value + vr_gun_z_offset.value -
+           gorillaDrop;
 }
 
 // Get the player origin vector, but adjusted to the upper torso on the Z axis.
@@ -1906,6 +1979,7 @@ void SetHandPos(int index, entity_t& player)
     }
 
     const auto oldHandpos = cl.handpos[index];
+    cl.handrawpos[index] = worldHandPos;
 
     const qvec3 lastPlayerTranslation =
         gotLastPlayerOrigin ? player.origin - lastPlayerOrigin : vec3_zero;
@@ -3514,9 +3588,15 @@ void VR_UpdateScreenContent()
             temp, (r_refdef.viewangles[YAW] - orientation[YAW]) * M_PI_DIV_180);
 
         vr_viewOffset[2] += vr_floor_offset.value;
+        if(vr_gorilla_locomotion.value)
+        {
+            vr_viewOffset[2] -= vr_gorilla_view_drop.value;
+        }
 
         RenderScreenForCurrentEye_OVR(eye);
     }
+
+    glFlush();
 
     // Blit mirror texture to backbuffer
     const GLint w = glwidth;
@@ -4424,6 +4504,7 @@ void VR_Move(usercmd_t* cmd)
 
     // VR: Main hand values.
     cmd->handpos = cl.handpos[cVR_MainHand];
+    cmd->handrawpos = cl.handrawpos[cVR_MainHand];
     cmd->handrot = cl.handrot[cVR_MainHand];
     cmd->handvel = cl.handvel[cVR_MainHand];
     cmd->handthrowvel = cl.handthrowvel[cVR_MainHand];
@@ -4432,6 +4513,7 @@ void VR_Move(usercmd_t* cmd)
 
     // VR: Off hand values.
     cmd->offhandpos = cl.handpos[cVR_OffHand];
+    cmd->offhandrawpos = cl.handrawpos[cVR_OffHand];
     cmd->offhandrot = cl.handrot[cVR_OffHand];
     cmd->offhandvel = cl.handvel[cVR_OffHand];
     cmd->offhandthrowvel = cl.handthrowvel[cVR_OffHand];

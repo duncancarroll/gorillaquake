@@ -191,6 +191,7 @@ struct client_state_t
     qvec3 aimangles;
     qvec3 vmeshoffset;
     qvec3 handpos[2];
+    qvec3 handrawpos[2];
     qvec3 handrot[2];
     qvec3 prevhandrot[2];
     qvec3 handvel[2];

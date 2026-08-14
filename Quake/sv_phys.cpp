@@ -35,7 +35,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "qcvm.hpp"
 
 #include <algorithm>
+#include <array>
 #include <tuple>
+#include <vector>
 
 /*
 
@@ -1204,6 +1206,551 @@ void SV_VRWpntouch(edict_t* ent)
     doHand(cVR_OffHand);
 }
 
+namespace
+{
+constexpr int cGorillaMaxVelocityHistory = 32;
+
+struct GorillaHandState
+{
+    qvec3 lastPos{vec3_zero};
+    bool touching{false};
+};
+
+struct GorillaLocomotionState
+{
+    bool initialized{false};
+    std::array<GorillaHandState, 2> hands{};
+    std::array<qvec3, cGorillaMaxVelocityHistory> velocityHistory{};
+    qvec3 velocityAverage{vec3_zero};
+    qvec3 lastOrigin{vec3_zero};
+    double nextDebugPrintTime{0.0};
+    int velocityIndex{0};
+    int velocityCount{0};
+};
+
+std::vector<GorillaLocomotionState> gorillaLocomotionStates;
+double gorillaNextInactiveDebugPrintTime{0.0};
+
+[[nodiscard]] bool SV_GorillaDebugEnabled() noexcept
+{
+    return false;
+}
+
+[[nodiscard]] bool SV_GorillaShouldPrint(
+    GorillaLocomotionState& state, const bool force = false) noexcept
+{
+    if(!SV_GorillaDebugEnabled())
+    {
+        return false;
+    }
+
+    if(force || realtime >= state.nextDebugPrintTime)
+    {
+        state.nextDebugPrintTime = realtime + 0.25;
+        return true;
+    }
+
+    return false;
+}
+
+[[nodiscard]] bool SV_GorillaShouldPrintInactive() noexcept
+{
+    if(!SV_GorillaDebugEnabled() || realtime < gorillaNextInactiveDebugPrintTime)
+    {
+        return false;
+    }
+
+    gorillaNextInactiveDebugPrintTime = realtime + 0.5;
+    return true;
+}
+
+[[nodiscard]] const char* SV_GorillaHandName(const HandIdx hand) noexcept
+{
+    return hand == cVR_OffHand ? "off" : "main";
+}
+
+void SV_GorillaPrintVec(const char* const name, const qvec3& v)
+{
+    Con_Printf("%s=(%.1f %.1f %.1f)", name, v[0], v[1], v[2]);
+}
+
+[[nodiscard]] bool SV_GorillaValidHandPosition(const qvec3& pos) noexcept
+{
+    return glm::length(pos) > 0.001_qf;
+}
+
+[[nodiscard]] qvec3 SV_GorillaCmdHandPos(
+    const usercmd_t& move, const HandIdx hand, bool& usedFallback) noexcept
+{
+    const qvec3 raw =
+        hand == cVR_OffHand ? move.offhandrawpos : move.handrawpos;
+    if(SV_GorillaValidHandPosition(raw))
+    {
+        usedFallback = false;
+        return raw;
+    }
+
+    usedFallback = true;
+    return hand == cVR_OffHand ? move.offhandpos : move.handpos;
+}
+
+[[nodiscard]] qvec3 SV_GorillaPlayerHeadPos(const edict_t* const ent) noexcept
+{
+    qvec3 head = ent->v.origin + ent->v.view_ofs;
+    head[2] += vr_floor_offset.value;
+    head[2] -= vr_gorilla_view_drop.value;
+    return head;
+}
+
+[[nodiscard]] qvec3 SV_GorillaClampHandToReach(
+    const qvec3& headPos, const qvec3& handPos) noexcept
+{
+    const qfloat maxArmLength =
+        std::max(1._qf, static_cast<qfloat>(vr_gorilla_max_arm_length.value));
+
+    const qvec3 diff = handPos - headPos;
+    const qfloat len = glm::length(diff);
+
+    if(len <= maxArmLength)
+    {
+        return handPos;
+    }
+
+    return headPos + safeNormalize(diff) * maxArmLength;
+}
+
+[[nodiscard]] qvec3 SV_GorillaProjectOnPlane(
+    const qvec3& value, const qvec3& normal) noexcept
+{
+    return value - normal * DotProduct(value, normal);
+}
+
+[[nodiscard]] bool SV_GorillaHandTrace(edict_t* const ent,
+    const qvec3& start, const qfloat radius, const qvec3& movement,
+    const qfloat precision, qvec3& endPosition, trace_t& hitInfo)
+{
+    if(glm::length(movement) <= 0.001_qf)
+    {
+        endPosition = start;
+        return false;
+    }
+
+    const qfloat tracedRadius = std::max(0.25_qf, radius * precision);
+    const qvec3 extents{tracedRadius, tracedRadius, tracedRadius};
+
+    hitInfo = SV_Move(start, -extents, extents, start + movement, MOVE_NORMAL,
+        ent);
+
+    if(quake::util::hitSomething(hitInfo) || hitInfo.startsolid)
+    {
+        endPosition = hitInfo.endpos;
+        return true;
+    }
+
+    const trace_t rayTrace =
+        SV_MoveTrace(start, start + movement, MOVE_NORMAL, ent);
+    if(quake::util::hitSomething(rayTrace) || rayTrace.startsolid)
+    {
+        hitInfo = rayTrace;
+        endPosition = start;
+        return true;
+    }
+
+    endPosition = start + movement;
+    return false;
+}
+
+[[nodiscard]] bool SV_GorillaIterativeHandTrace(edict_t* const ent,
+    const qvec3& start, const qfloat radius, const qvec3& movement,
+    const qfloat precision, qvec3& endPosition, const bool singleHand)
+{
+    trace_t hitInfo;
+    if(SV_GorillaHandTrace(
+           ent, start, radius, movement, precision, endPosition, hitInfo))
+    {
+        const qvec3 firstPosition = endPosition;
+        const qfloat slip = singleHand ? 0.001_qf
+                                       : static_cast<qfloat>(
+                                             vr_gorilla_slide_factor.value);
+
+        const qvec3 wantedEnd = start + movement;
+        const qvec3 slideMovement =
+            SV_GorillaProjectOnPlane(wantedEnd - firstPosition,
+                hitInfo.plane.normal) *
+            slip;
+
+        trace_t slideHit;
+        if(SV_GorillaHandTrace(ent, firstPosition, radius, slideMovement,
+               precision * precision, endPosition, slideHit))
+        {
+            return true;
+        }
+
+        const qvec3 slideEnd = firstPosition + slideMovement;
+        if(SV_GorillaHandTrace(ent, slideEnd, radius, wantedEnd - slideEnd,
+               precision * precision * precision, endPosition, slideHit))
+        {
+            return true;
+        }
+
+        endPosition = firstPosition;
+        return true;
+    }
+
+    qvec3 normalizedMovement = safeNormalize(movement);
+    if(glm::length(normalizedMovement) == 0.f)
+    {
+        endPosition = vec3_zero;
+        return false;
+    }
+
+    trace_t smallHit;
+    if(SV_GorillaHandTrace(ent, start, radius,
+           normalizedMovement * (glm::length(movement) + radius * 0.34_qf),
+           precision * 0.66_qf, endPosition, smallHit))
+    {
+        endPosition = start;
+        return true;
+    }
+
+    endPosition = vec3_zero;
+    return false;
+}
+
+void SV_GorillaStoreVelocity(
+    GorillaLocomotionState& state, const qvec3& movement)
+{
+    const int historySize = std::clamp(static_cast<int>(
+                                           vr_gorilla_history_size.value),
+        1, cGorillaMaxVelocityHistory);
+    state.velocityCount = std::min(state.velocityCount, historySize);
+    state.velocityIndex %= historySize;
+
+    const qvec3 frameVelocity =
+        host_frametime > 0.0 ? movement / static_cast<qfloat>(host_frametime)
+                             : vec3_zero;
+
+    if(state.velocityCount < historySize)
+    {
+        state.velocityHistory[state.velocityCount++] = frameVelocity;
+    }
+    else
+    {
+        state.velocityHistory[state.velocityIndex] = frameVelocity;
+        state.velocityIndex = (state.velocityIndex + 1) % historySize;
+    }
+
+    state.velocityAverage = vec3_zero;
+    for(int i = 0; i < state.velocityCount; ++i)
+    {
+        state.velocityAverage += state.velocityHistory[i];
+    }
+    state.velocityAverage /= static_cast<qfloat>(state.velocityCount);
+}
+
+void SV_GorillaResetState(
+    GorillaLocomotionState& state, edict_t* const ent, const usercmd_t& move)
+{
+    const double nextDebugPrintTime = state.nextDebugPrintTime;
+    state = {};
+    state.initialized = true;
+    state.nextDebugPrintTime = nextDebugPrintTime;
+
+    bool mainFallback;
+    bool offFallback;
+    state.hands[cVR_MainHand].lastPos =
+        SV_GorillaCmdHandPos(move, cVR_MainHand, mainFallback);
+    state.hands[cVR_OffHand].lastPos =
+        SV_GorillaCmdHandPos(move, cVR_OffHand, offFallback);
+    state.lastOrigin = ent->v.origin;
+
+    if(SV_GorillaShouldPrint(state, true))
+    {
+        Con_Printf("gorilla: reset client state origin=(%.1f %.1f %.1f) "
+                   "mainFallback=%d offFallback=%d\n",
+            ent->v.origin[0], ent->v.origin[1], ent->v.origin[2],
+            mainFallback ? 1 : 0, offFallback ? 1 : 0);
+    }
+}
+
+bool SV_GorillaApplyLaunch(
+    GorillaLocomotionState& state, edict_t* const ent, qvec3& launch)
+{
+    const qfloat speed = glm::length(state.velocityAverage);
+    if(speed <= vr_gorilla_velocity_limit.value)
+    {
+        launch = vec3_zero;
+        return false;
+    }
+
+    launch = state.velocityAverage *
+             static_cast<qfloat>(vr_gorilla_jump_multiplier.value);
+
+    const qfloat launchSpeed = glm::length(launch);
+    if(launchSpeed > vr_gorilla_max_jump_speed.value)
+    {
+        launch = safeNormalize(launch) *
+                 static_cast<qfloat>(vr_gorilla_max_jump_speed.value);
+    }
+
+    ent->v.velocity = launch;
+    if(launch[2] > 0.f)
+    {
+        quake::util::removeFlag(ent, FL_ONGROUND);
+    }
+
+    return true;
+}
+
+void SV_GorillaLocomotion(
+    edict_t* const ent, const int clientIndex, const usercmd_t& move)
+{
+    if(clientIndex < 0)
+    {
+        return;
+    }
+
+    if(!vr_gorilla_locomotion.value || ent->v.health <= 0 ||
+        ent->v.movetype != MOVETYPE_WALK)
+    {
+        if(SV_GorillaShouldPrintInactive())
+        {
+            Con_Printf("gorilla: inactive client=%d enabled=%.0f health=%.1f "
+                       "movetype=%.0f\n",
+                clientIndex, vr_gorilla_locomotion.value, ent->v.health,
+                ent->v.movetype);
+        }
+
+        if(clientIndex >= 0 &&
+            clientIndex < static_cast<int>(gorillaLocomotionStates.size()))
+        {
+            gorillaLocomotionStates[clientIndex].initialized = false;
+        }
+        return;
+    }
+
+    bool mainFallback;
+    bool offFallback;
+    const qvec3 mainRawOrResolved =
+        SV_GorillaCmdHandPos(move, cVR_MainHand, mainFallback);
+    const qvec3 offRawOrResolved =
+        SV_GorillaCmdHandPos(move, cVR_OffHand, offFallback);
+
+    if(!SV_GorillaValidHandPosition(mainRawOrResolved) &&
+        !SV_GorillaValidHandPosition(offRawOrResolved))
+    {
+        if(SV_GorillaShouldPrintInactive())
+        {
+            Con_Printf("gorilla: no hand input client=%d rawMainLen=%.3f "
+                       "rawOffLen=%.3f resolvedMainLen=%.3f "
+                       "resolvedOffLen=%.3f\n",
+                clientIndex, glm::length(move.handrawpos),
+                glm::length(move.offhandrawpos), glm::length(move.handpos),
+                glm::length(move.offhandpos));
+        }
+
+        if(clientIndex < static_cast<int>(gorillaLocomotionStates.size()))
+        {
+            gorillaLocomotionStates[clientIndex].initialized = false;
+        }
+        return;
+    }
+
+    if(clientIndex >= static_cast<int>(gorillaLocomotionStates.size()))
+    {
+        gorillaLocomotionStates.resize(clientIndex + 1);
+    }
+
+    GorillaLocomotionState& state = gorillaLocomotionStates[clientIndex];
+    if(!state.initialized)
+    {
+        SV_GorillaResetState(state, ent, move);
+        return;
+    }
+
+    const qfloat radius =
+        std::max(0.25_qf, static_cast<qfloat>(vr_gorilla_hand_radius.value));
+    const qfloat precision = std::clamp(
+        static_cast<qfloat>(vr_gorilla_precision.value), 0.5_qf, 0.9999_qf);
+
+    qvec3 headPos = SV_GorillaPlayerHeadPos(ent);
+    std::array<qvec3, 2> currentHands{
+        SV_GorillaClampHandToReach(headPos, offRawOrResolved),
+        SV_GorillaClampHandToReach(headPos, mainRawOrResolved)};
+
+    std::array<bool, 2> colliding{};
+    std::array<qvec3, 2> handMovement{};
+    const std::array<bool, 2> fallbackUsed{offFallback, mainFallback};
+    const std::array<bool, 2> previousTouching{
+        state.hands[cVR_OffHand].touching,
+        state.hands[cVR_MainHand].touching};
+
+    const bool previouslyBothTouching =
+        state.hands[cVR_OffHand].touching &&
+        state.hands[cVR_MainHand].touching;
+
+    for(int hand = 0; hand < 2; ++hand)
+    {
+        const qvec3 gravityBias{0.f, 0.f,
+            static_cast<qfloat>(-2.f * sv_gravity.value * host_frametime *
+                                host_frametime)};
+
+        const qvec3 distanceTraveled =
+            currentHands[hand] - state.hands[hand].lastPos + gravityBias;
+
+        qvec3 finalPosition;
+        const bool singleHand = !previouslyBothTouching;
+        if(SV_GorillaIterativeHandTrace(ent, state.hands[hand].lastPos, radius,
+               distanceTraveled, precision, finalPosition, singleHand))
+        {
+            handMovement[hand] =
+                state.hands[hand].touching
+                    ? state.hands[hand].lastPos - currentHands[hand]
+                    : finalPosition - currentHands[hand];
+            colliding[hand] = true;
+        }
+    }
+
+    qvec3 bodyMovement{vec3_zero};
+    if((colliding[cVR_OffHand] || state.hands[cVR_OffHand].touching) &&
+        (colliding[cVR_MainHand] || state.hands[cVR_MainHand].touching))
+    {
+        bodyMovement =
+            (handMovement[cVR_OffHand] + handMovement[cVR_MainHand]) / 2._qf;
+    }
+    else
+    {
+        bodyMovement = handMovement[cVR_OffHand] + handMovement[cVR_MainHand];
+    }
+
+    qvec3 actualBodyMovement{vec3_zero};
+    bool playerTraceAllSolid = false;
+    bool playerTraceStartSolid = false;
+    if(glm::length(bodyMovement) > 0.001_qf)
+    {
+        const qvec3 oldOrigin = ent->v.origin;
+        const trace_t playerTrace = SV_Move(ent->v.origin, ent->v.mins,
+            ent->v.maxs, ent->v.origin + bodyMovement, MOVE_NORMAL, ent);
+        playerTraceAllSolid = playerTrace.allsolid;
+        playerTraceStartSolid = playerTrace.startsolid;
+
+        if(!playerTrace.allsolid)
+        {
+            ent->v.origin = playerTrace.endpos;
+            actualBodyMovement = ent->v.origin - oldOrigin;
+            headPos += actualBodyMovement;
+            for(qvec3& hand : currentHands)
+            {
+                hand += actualBodyMovement;
+            }
+        }
+    }
+
+    for(int hand = 0; hand < 2; ++hand)
+    {
+        qvec3 finalPosition;
+        const qvec3 distanceTraveled =
+            currentHands[hand] - state.hands[hand].lastPos;
+
+        const bool singleHand = !((colliding[cVR_OffHand] ||
+                                      state.hands[cVR_OffHand].touching) &&
+                                  (colliding[cVR_MainHand] ||
+                                      state.hands[cVR_MainHand].touching));
+
+        if(SV_GorillaIterativeHandTrace(ent, state.hands[hand].lastPos, radius,
+               distanceTraveled, precision, finalPosition, singleHand))
+        {
+            state.hands[hand].lastPos = finalPosition;
+            colliding[hand] = true;
+        }
+        else
+        {
+            state.hands[hand].lastPos = currentHands[hand];
+        }
+    }
+
+    SV_GorillaStoreVelocity(state, actualBodyMovement);
+
+    qvec3 launch{vec3_zero};
+    bool launched = false;
+    if((colliding[cVR_OffHand] || colliding[cVR_MainHand]))
+    {
+        launched = SV_GorillaApplyLaunch(state, ent, launch);
+    }
+
+    for(int hand = 0; hand < 2; ++hand)
+    {
+        if(!colliding[hand])
+        {
+            state.hands[hand].touching = false;
+            continue;
+        }
+
+        const qvec3 toCurrentHand =
+            currentHands[hand] - state.hands[hand].lastPos;
+        if(glm::length(toCurrentHand) > vr_gorilla_unstick_distance.value)
+        {
+            const trace_t unstickTrace = SV_Move(headPos,
+                {-radius, -radius, -radius}, {radius, radius, radius},
+                currentHands[hand], MOVE_NORMAL, ent);
+            if(!quake::util::hitSomething(unstickTrace) &&
+                !unstickTrace.startsolid)
+            {
+                state.hands[hand].lastPos = currentHands[hand];
+                colliding[hand] = false;
+            }
+        }
+
+        state.hands[hand].touching = colliding[hand];
+    }
+
+    const bool contactChanged =
+        previousTouching[cVR_OffHand] != state.hands[cVR_OffHand].touching ||
+        previousTouching[cVR_MainHand] != state.hands[cVR_MainHand].touching;
+
+    if(SV_GorillaShouldPrint(state, contactChanged || launched))
+    {
+        Con_Printf("gorilla: client=%d contact off=%d main=%d fallback off=%d "
+                   "main=%d avgSpeed=%.1f launched=%d allsolid=%d "
+                   "startsolid=%d\n",
+            clientIndex, state.hands[cVR_OffHand].touching ? 1 : 0,
+            state.hands[cVR_MainHand].touching ? 1 : 0,
+            fallbackUsed[cVR_OffHand] ? 1 : 0,
+            fallbackUsed[cVR_MainHand] ? 1 : 0,
+            glm::length(state.velocityAverage), launched ? 1 : 0,
+            playerTraceAllSolid ? 1 : 0, playerTraceStartSolid ? 1 : 0);
+
+        Con_Printf("gorilla: ");
+        SV_GorillaPrintVec("head", headPos);
+        Con_Printf(" ");
+        SV_GorillaPrintVec("origin", ent->v.origin);
+        Con_Printf(" ");
+        SV_GorillaPrintVec("body", bodyMovement);
+        Con_Printf(" ");
+        SV_GorillaPrintVec("actual", actualBodyMovement);
+        Con_Printf(" ");
+        SV_GorillaPrintVec("velAvg", state.velocityAverage);
+        Con_Printf(" ");
+        SV_GorillaPrintVec("launch", launch);
+        Con_Printf("\n");
+
+        for(const HandIdx hand : {cVR_OffHand, cVR_MainHand})
+        {
+            Con_Printf("gorilla: hand=%s ", SV_GorillaHandName(hand));
+            SV_GorillaPrintVec("current", currentHands[hand]);
+            Con_Printf(" ");
+            SV_GorillaPrintVec("last", state.hands[hand].lastPos);
+            Con_Printf(" ");
+            SV_GorillaPrintVec("move", handMovement[hand]);
+            Con_Printf(" reach=%.1f\n",
+                glm::length(currentHands[hand] - headPos));
+        }
+    }
+
+    state.lastOrigin = ent->v.origin;
+}
+} // namespace
+
 
 
 /*
@@ -1235,6 +1782,7 @@ void SV_Physics_Client(edict_t* ent, int num)
     //
     // VR hands
     //
+    SV_GorillaLocomotion(ent, num - 1, svs.clients[num - 1].cmd);
     SV_Handtouch(ent);
     SV_VRWpntouch(ent);
 

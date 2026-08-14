@@ -620,6 +620,7 @@ void CL_SendMove(const usercmd_t* cmd)
 
         // main hand values:
         writeVec(cmd->handpos);
+        writeVec(cmd->handrawpos);
         writeVec(cmd->handrot);
         writeVec(cmd->handvel);
         writeVec(cmd->handthrowvel);
@@ -628,6 +629,7 @@ void CL_SendMove(const usercmd_t* cmd)
 
         // off hand values:
         writeVec(cmd->offhandpos);
+        writeVec(cmd->offhandrawpos);
         writeVec(cmd->offhandrot);
         writeVec(cmd->offhandvel);
         writeVec(cmd->offhandthrowvel);

@@ -1597,6 +1597,33 @@ void M_Options_Key(int k)
     m.add_separator();
     // ------------------------------------------------------------------------
 
+    m.add_cvar_entry<bool>("Gorilla Locomotion", vr_gorilla_locomotion)
+        .tooltip(
+            "Enables hand-surface locomotion where planted hands pull and "
+            "launch the player body.");
+
+    m.add_cvar_entry<float>(
+         "Gorilla View Drop", vr_gorilla_view_drop, {1.f, 0.f, 32.f})
+        .tooltip(
+            "Additional camera and hand height drop while Gorilla Locomotion "
+            "is enabled.");
+
+    m.add_cvar_entry<float>(
+         "Gorilla Hand Radius", vr_gorilla_hand_radius, {0.25f, 1.f, 12.f})
+        .tooltip("Hand collision radius used by Gorilla Locomotion.");
+
+    m.add_cvar_entry<float>(
+         "Gorilla Arm Length", vr_gorilla_max_arm_length, {1.f, 24.f, 96.f})
+        .tooltip("Maximum hand reach from the estimated player head.");
+
+    m.add_cvar_entry<float>("Gorilla Jump Speed", vr_gorilla_max_jump_speed,
+         {10.f, 100.f, 1200.f})
+        .tooltip("Maximum launch velocity from hand-surface pushes.");
+
+    // ------------------------------------------------------------------------
+    m.add_separator();
+    // ------------------------------------------------------------------------
+
     m.add_cvar_entry<int>("Movement Speed", cl_forwardspeed, {25, 100, 400})
         .tooltip("In-game movement speed.");
 

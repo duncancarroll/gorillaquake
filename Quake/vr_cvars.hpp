@@ -161,6 +161,19 @@ extern cvar_t vr_spinreload_x_angular_threshold;
 extern cvar_t vr_fakevr_handroll;
 extern cvar_t vr_throw_algorithm;
 extern cvar_t vr_throw_angvel_avg_frames;
+extern cvar_t vr_gorilla_locomotion;
+extern cvar_t vr_gorilla_view_drop;
+extern cvar_t vr_gorilla_hand_radius;
+extern cvar_t vr_gorilla_max_arm_length;
+extern cvar_t vr_gorilla_unstick_distance;
+extern cvar_t vr_gorilla_velocity_limit;
+extern cvar_t vr_gorilla_max_jump_speed;
+extern cvar_t vr_gorilla_jump_multiplier;
+extern cvar_t vr_gorilla_slide_factor;
+extern cvar_t vr_gorilla_precision;
+extern cvar_t vr_gorilla_history_size;
+extern cvar_t vr_gorilla_haptics;
+extern cvar_t vr_gorilla_debug;
 
 //
 //

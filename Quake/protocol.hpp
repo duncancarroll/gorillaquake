@@ -556,12 +556,14 @@ struct usercmd_t
     qvec3 viewangles;
     float vryaw;
     qvec3 handpos;
+    qvec3 handrawpos;
     qvec3 handrot;
     qvec3 handvel;
     qvec3 handthrowvel;
     float handvelmag;
     qvec3 handavel;
     qvec3 offhandpos;
+    qvec3 offhandrawpos;
     qvec3 offhandrot;
     qvec3 offhandvel;
     qvec3 offhandthrowvel;

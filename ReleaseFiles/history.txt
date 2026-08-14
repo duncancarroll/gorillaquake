@@ -1,0 +1,2 @@
+vr_gorilla_locomotion 1
+vr_gorilla_debug 1

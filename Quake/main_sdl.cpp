@@ -38,6 +38,16 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <stdio.h>
 
+#ifdef WIN32
+extern "C"
+{
+// Ask hybrid GPU drivers to create the OpenGL context on the high-performance
+// adapter. SteamVR may reject GL textures created on a different GPU.
+__declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#endif
+
 /* need at least SDL_2.0.0 */
 #define SDL_MIN_X 2
 #define SDL_MIN_Y 0
