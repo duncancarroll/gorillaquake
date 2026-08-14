@@ -202,3 +202,22 @@ QC/readme.txt
 QC/manual.txt
 QC/gnu.txt
 QC/array.txt
+
+
+# Rider
+.idea/
+**/.idea/
+
+# vcpkg generated dependencies
+vcpkg_installed/
+
+# Local game state
+ReleaseFiles/Id1/*.sav
+
+# Local debug build output
+ReleaseFiles/quakevr-debug.exe
+ReleaseFiles/quakevr-debug.lib
+
+# DLLs copied into the runnable directory by the build
+# Some DLLs are already tracked upstream, so this only suppresses new ones.
+ReleaseFiles/*.dll
