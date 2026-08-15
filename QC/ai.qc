@@ -259,6 +259,32 @@ void() path_follow2 =
 
 /*
 =============
+AI_ShotTargetPoint
+
+Returns a point that line-of-shot traces can use when they need trace_ent to be
+the target. Gorilla locomotion keeps the player collision hull tiny, so the
+normal view point sits outside the player bbox and ranged monsters think their
+shot is blocked.
+=============
+*/
+vector(entity targ, vector normalPoint) AI_AdjustShotTargetPoint =
+{
+    if((targ.flags & FL_CLIENT) && targ.size_x <= 8 && targ.size_y <= 8 &&
+        targ.size_z <= 8)
+    {
+        return targ.origin + (targ.mins + targ.maxs) * 0.5;
+    }
+
+    return normalPoint;
+};
+
+vector(entity targ) AI_ShotTargetPoint =
+{
+    return AI_AdjustShotTargetPoint(targ, targ.origin + targ.view_ofs);
+};
+
+/*
+=============
 range
 
 returns the range catagorization of an entity reletive to self

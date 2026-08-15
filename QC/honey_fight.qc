@@ -31,7 +31,7 @@ float() OgreMarksmanCheckAttack =
 
 // see if any entities are in the way of the shot
     spot1 = self.origin + self.view_ofs;
-    spot2 = targ.origin + targ.view_ofs;
+    spot2 = AI_ShotTargetPoint(targ);
 
     traceline (spot1, spot2, FALSE, self);
 

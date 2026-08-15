@@ -62,7 +62,7 @@ void(float ofs, float turn) armagon_launch_missile =
       }
    makevectors(ang);
    src = self.origin + '0 0 66' + v_right*ofs + v_forward*84;
-   targ = self.enemy.origin + self.enemy.view_ofs;
+   targ = AI_ShotTargetPoint(self.enemy);
    if(skill!=0)
       {
       dist = vlen(targ-src);
@@ -109,7 +109,7 @@ void(float ofs) armagon_launch_laser =
    ang_y = ang_y + self.fixangle;
    makevectors(ang);
    src = self.origin + '0 0 66' + v_right*ofs + v_forward*84;
-   targ = self.enemy.origin + self.enemy.view_ofs;
+   targ = AI_ShotTargetPoint(self.enemy);
    if(skill!=0)
       {
       dist = vlen(targ-src);
@@ -775,7 +775,7 @@ void() armagon_stand_attack =
 
 // see if any entities are in the way of the shot
    spot1 = self.origin + self.view_ofs;
-   spot2 = self.enemy.origin + self.enemy.view_ofs;
+   spot2 = AI_ShotTargetPoint(self.enemy);
 
    traceline(spot1, spot2, FALSE, self);
 
@@ -837,7 +837,7 @@ float()  ArmagonCheckAttack =
 
 // see if any entities are in the way of the shot
    spot1 = self.origin + self.view_ofs;
-    spot2 = targ.origin + targ.view_ofs;
+    spot2 = AI_ShotTargetPoint(targ);
 
     traceline(spot1, spot2, FALSE, self);
 

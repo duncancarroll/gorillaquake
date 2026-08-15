@@ -1372,7 +1372,7 @@ int gorillaMovementLogCount{0};
     const edict_t* const ent) noexcept
 {
     return vr_gorilla_locomotion.value != 0.f && ent->v.health > 0 &&
-           ent->v.movetype == MOVETYPE_WALK && ent->v.waterlevel < 2;
+           ent->v.movetype == MOVETYPE_WALK;
 }
 
 [[nodiscard]] qvec3 SV_GorillaPlayerHullMins() noexcept
@@ -2035,6 +2035,25 @@ void SV_GorillaStoreVelocity(
     return hand == cVR_OffHand ? move.offhandvel : move.handvel;
 }
 
+[[nodiscard]] qvec3 SV_GorillaApplyAnchorDeadzone(
+    const qvec3& movement) noexcept
+{
+    const qfloat deadzone = std::max(
+        0._qf, static_cast<qfloat>(vr_gorilla_anchor_deadzone.value));
+    if(deadzone <= 0._qf)
+    {
+        return movement;
+    }
+
+    const qfloat length = glm::length(movement);
+    if(length <= deadzone)
+    {
+        return vec3_zero;
+    }
+
+    return movement * ((length - deadzone) / length);
+}
+
 [[nodiscard]] bool SV_GorillaLaunchContactIsIntentional(
     const usercmd_t& move, const std::array<bool, 2>& colliding)
 {
@@ -2360,6 +2379,12 @@ bool SV_GorillaLocomotion(
                 state.hands[hand].touching
                     ? state.hands[hand].lastPos - currentHands[hand]
                     : finalPosition - currentHands[hand];
+            if(state.hands[hand].touching)
+            {
+                handMovement[hand] =
+                    SV_GorillaApplyAnchorDeadzone(handMovement[hand]);
+            }
+
             colliding[hand] = true;
         }
     }
@@ -2474,7 +2499,7 @@ bool SV_GorillaLocomotion(
     const bool anyHandContact =
         colliding[cVR_OffHand] || colliding[cVR_MainHand];
     const bool handsAnchored = anyHandContact && !launched && !bodyBounced;
-    if(handsAnchored)
+    if(handsAnchored && ent->v.waterlevel < 2)
     {
         SV_GorillaClearAnchoredVelocity(ent);
     }
@@ -2775,7 +2800,7 @@ void SV_Physics_Client(edict_t* ent, int num)
                     SV_AddGravity(ent);
                 }
 
-                if(!gorillaHandsAnchored)
+                if(!gorillaHandsAnchored || ent->v.waterlevel >= 2)
                 {
                     SV_CheckStuck(ent);
                     SV_WalkMove(ent, true /* reset onground */);

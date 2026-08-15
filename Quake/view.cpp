@@ -1413,21 +1413,26 @@ static void V_SetupHandViewEnt(const FingerIdx fingerIdx, int anchorWpnCvar,
     entity_t* const anchor, entity_t* const hand, qvec3 handRot,
     const qvec3& extraOffset, const bool horizFlip, const bool ghost)
 {
-    auto [oPitch, oYaw, oRoll] =
-        VR_GetWpnAngleOffsets(vr_hardcoded_wpn_cvar_fist);
-
     if(ghost)
     {
         anchorWpnCvar = vr_hardcoded_wpn_cvar_fist;
     }
 
     const int handIdx = horizFlip ? cVR_OffHand : cVR_MainHand;
-    const bool anchorIsFist = anchorWpnCvar == vr_hardcoded_wpn_cvar_fist;
+    bool anchorIsFist = anchorWpnCvar == vr_hardcoded_wpn_cvar_fist ||
+                        anchor == nullptr || anchor->model == nullptr;
+    if(anchorIsFist)
+    {
+        anchorWpnCvar = vr_hardcoded_wpn_cvar_fist;
+    }
 
     if(!anchorIsFist)
     {
         assert(anchor->model != nullptr);
     }
+
+    auto [oPitch, oYaw, oRoll] =
+        VR_GetWpnAngleOffsets(anchorWpnCvar);
 
     if(horizFlip)
     {
@@ -1552,6 +1557,7 @@ static void V_SetupFixedHelpingHandViewEnt(const FingerIdx fingerIdx,
     hand->frame = vr_fingertracking_frame[(int)handIdx][(int)fingerIdx];
     hand->colormap = vid.colormap;
     hand->horizFlip = horizFlip;
+    hand->hidden = false;
 
     hand->angles[PITCH] = -otherHandRot[PITCH];
     hand->angles[YAW] = otherHandRot[YAW];
@@ -1714,7 +1720,7 @@ static void V_RenderView_HandModels()
             entity_t* otherWpnEnt, entity_t* handEnt, const int hand,
             const qvec3& extraOffset, const bool horizFlip, const bool ghost)
     {
-        if(otherWpnEnt->model != nullptr)
+        if(!vr_gorilla_locomotion.value && otherWpnEnt->model != nullptr)
         {
             const int otherWpnCvar = VR_GetWpnCVarFromModel(otherWpnEnt->model);
 

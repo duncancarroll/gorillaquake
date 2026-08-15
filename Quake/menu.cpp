@@ -132,6 +132,16 @@ void M_ConfigureNetSubsystem();
 
 [[nodiscard]] static quake::menu& quakeVRQuickSettingsMenu();
 
+[[nodiscard]] static bool M_MenuSelectionBlockedForKey(const int key) noexcept
+{
+    if(vr_menu_select_enabled.value != 0.f)
+    {
+        return false;
+    }
+
+    return key == K_ENTER || key == K_KP_ENTER || key == K_ABUTTON;
+}
+
 /*
 ================
 M_DrawCharacter
@@ -1625,6 +1635,12 @@ void M_Options_Key(int k)
          {1.f, 2.f, 48.f})
         .tooltip("Controller-to-anchored-hand distance required to release a "
                  "stuck Gorilla hand.");
+
+    m.add_cvar_entry<float>(
+         "Gorilla Anchor Deadzone", vr_gorilla_anchor_deadzone,
+         {0.05f, 0.f, 2.f})
+        .tooltip("Small planted-hand movement ignored to suppress controller "
+                 "tracking jitter.");
 
     m.add_cvar_entry<float>("Gorilla Push Mult", vr_gorilla_jump_multiplier,
          {0.05f, 0.f, 4.f})
@@ -5351,6 +5367,12 @@ void M_Keydown(int key, const bool fromVirtualKeyboard)
     if(!fromVirtualKeyboard && !vr_fakevr.value &&
         mkb().hovered(vr_menu_mouse_x, vr_menu_mouse_y) && key == K_ENTER)
     {
+        return;
+    }
+
+    if(M_MenuSelectionBlockedForKey(key))
+    {
+        S_LocalSound("misc/menu1.wav");
         return;
     }
 

@@ -127,7 +127,8 @@ void() ShalMissile =
     vector    dir;
     float    dist, flytime;
 
-    dir = normalize((self.enemy.origin + '0 0 10') - self.origin);
+    dir = normalize(AI_AdjustShotTargetPoint(
+        self.enemy, self.enemy.origin + '0 0 10') - self.origin);
     dist = vlen(self.enemy.origin - self.origin);
     flytime = dist * 0.002;
     if(flytime < 0.1)
@@ -157,7 +158,8 @@ void() ShalMissile =
 void() ShalHome =
 {
     vector    dir, vtemp;
-    vtemp = self.enemy.origin + '0 0 10';
+    vtemp = AI_AdjustShotTargetPoint(
+        self.enemy, self.enemy.origin + '0 0 10');
     if(self.enemy.health < 1)
     {
         remove(self);

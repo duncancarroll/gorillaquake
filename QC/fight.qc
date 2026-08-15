@@ -46,7 +46,7 @@ float() CheckAttack =
 
 // see if any entities are in the way of the shot
     spot1 = self.origin + self.view_ofs;
-    spot2 = targ.origin + targ.view_ofs;
+    spot2 = AI_ShotTargetPoint(targ);
 
     traceline(spot1, spot2, FALSE, self);
 
@@ -225,7 +225,7 @@ float() SoldierCheckAttack =
 
 // see if any entities are in the way of the shot
     spot1 = self.origin + self.view_ofs;
-    spot2 = targ.origin + targ.view_ofs;
+    spot2 = AI_ShotTargetPoint(targ);
 
     traceline(spot1, spot2, FALSE, self);
 
@@ -298,7 +298,7 @@ float() ShamCheckAttack =
 
 // see if any entities are in the way of the shot
     spot1 = self.origin + self.view_ofs;
-    spot2 = targ.origin + targ.view_ofs;
+    spot2 = AI_ShotTargetPoint(targ);
 
     if(vlen(spot1 - spot2) > 600)
         return FALSE;
@@ -357,7 +357,7 @@ float() OgreCheckAttack =
 
 // see if any entities are in the way of the shot
     spot1 = self.origin + self.view_ofs;
-    spot2 = targ.origin + targ.view_ofs;
+    spot2 = AI_ShotTargetPoint(targ);
 
     traceline(spot1, spot2, FALSE, self);
 

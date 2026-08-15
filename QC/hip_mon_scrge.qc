@@ -40,7 +40,7 @@ float() ScourgeCheckAttack =
 
     // see if any entities are in the way of the shot
     vector spot1 = self.origin + self.view_ofs;
-    vector spot2 = targ.origin + targ.view_ofs;
+    vector spot2 = AI_ShotTargetPoint(targ);
 
     if(vlen(spot1 - spot2) <= 100)
     {

@@ -2596,7 +2596,7 @@ float(entity xPlayer, float xDir, float xWeapon,
       float xWeaponFlags, float* xOutWeaponFlags) GetCycledWeapon
 {
     // Inclusive boundaries of cyclable weapon ids.
-    float minWeapon = WID_GRAPPLE;
+    float minWeapon = WID_FIST;
     float maxWeapon = WID_LASER_CANNON;
 
     // Just for safety.
