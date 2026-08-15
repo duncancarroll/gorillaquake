@@ -1772,6 +1772,7 @@ void(float xHand) W_FireGrenade =
             missile.velocity = v_forward * 600;
         }
 
+        missile.velocity_z = missile.velocity_z + 200;
         missile.velocity += vrProjectileVelocity(xHand, 0.6);
     }
     else
@@ -1950,6 +1951,7 @@ void(float xHand) W_FireProximityGrenade =
             missile.velocity = v_forward * 600;
         }
 
+        missile.velocity_z = missile.velocity_z + 200;
         missile.velocity += vrProjectileVelocity(xHand, 0.4);
     }
     else

@@ -144,6 +144,7 @@ void(float xHand) W_FireMultiGrenade =
             missile.velocity = v_forward * 600;
         }
 
+        missile.velocity_z = missile.velocity_z + 200;
         missile.velocity += vrProjectileVelocity(xHand, 0.6);
     }
     else

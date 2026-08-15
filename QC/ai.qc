@@ -272,7 +272,7 @@ vector(entity targ, vector normalPoint) AI_AdjustShotTargetPoint =
     if((targ.flags & FL_CLIENT) && targ.size_x <= 8 && targ.size_y <= 8 &&
         targ.size_z <= 8)
     {
-        return targ.origin + (targ.mins + targ.maxs) * 0.5;
+        return targ.origin + '0 0 16';
     }
 
     return normalPoint;
@@ -281,6 +281,11 @@ vector(entity targ, vector normalPoint) AI_AdjustShotTargetPoint =
 vector(entity targ) AI_ShotTargetPoint =
 {
     return AI_AdjustShotTargetPoint(targ, targ.origin + targ.view_ofs);
+};
+
+vector(entity targ) AI_GrenadeTargetPoint =
+{
+    return AI_AdjustShotTargetPoint(targ, targ.origin);
 };
 
 /*

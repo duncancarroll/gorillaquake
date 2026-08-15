@@ -65,6 +65,48 @@ struct moveclip_t
 
 int SV_HullPointContents(const hull_t* hull, int num, const qvec3& p);
 
+[[nodiscard]] static bool SV_GorillaHasTinyClientHull(
+    const edict_t* const ent) noexcept
+{
+    if(vr_gorilla_locomotion.value == 0.f || ent == nullptr ||
+        !quake::util::hasFlag(ent, FL_CLIENT))
+    {
+        return false;
+    }
+
+    const qvec3 size = ent->v.maxs - ent->v.mins;
+    return size[0] <= 8.f && size[1] <= 8.f && size[2] <= 8.f;
+}
+
+[[nodiscard]] static bool SV_GorillaUseDamageHullForTarget(
+    const moveclip_t* const clip, const edict_t* const target) noexcept
+{
+    if(clip == nullptr || clip->passedict == nullptr ||
+        !SV_GorillaHasTinyClientHull(target) || target->v.health <= 0 ||
+        target->v.takedamage == DAMAGE_NO)
+    {
+        return false;
+    }
+
+    if(quake::util::hasFlag(clip->passedict, FL_CLIENT))
+    {
+        return false;
+    }
+
+    const edict_t* const owner = PROG_TO_EDICT(clip->passedict->v.owner);
+    return owner == nullptr || !quake::util::hasFlag(owner, FL_CLIENT);
+}
+
+[[nodiscard]] static qvec3 SV_GorillaDamageHullMins() noexcept
+{
+    return {-16.f, -16.f, -24.f};
+}
+
+[[nodiscard]] static qvec3 SV_GorillaDamageHullMaxs() noexcept
+{
+    return {16.f, 16.f, 32.f};
+}
+
 /*
 ===============================================================================
 
@@ -1178,6 +1220,25 @@ trace_t SV_ClipMoveToEntity(edict_t* ent, const qvec3& start, const qvec3& mins,
     return trace;
 }
 
+[[nodiscard]] static trace_t SV_ClipMoveToEntityWithVirtualBounds(
+    edict_t* const ent, const qvec3& start, const qvec3& mins,
+    const qvec3& maxs, const qvec3& end, const qvec3& targetMins,
+    const qvec3& targetMaxs)
+{
+    const qvec3 oldMins = ent->v.mins;
+    const qvec3 oldMaxs = ent->v.maxs;
+
+    ent->v.mins = targetMins;
+    ent->v.maxs = targetMaxs;
+
+    trace_t trace = SV_ClipMoveToEntity(ent, start, mins, maxs, end);
+
+    ent->v.mins = oldMins;
+    ent->v.maxs = oldMaxs;
+
+    return trace;
+}
+
 //===========================================================================
 
 /*
@@ -1213,8 +1274,23 @@ void SV_ClipToLinks(areanode_t* node, moveclip_t* clip)
             continue;
         }
 
-        if(!quake::util::boxIntersection(clip->boxmins, clip->boxmaxs,
-               target->v.absmin, target->v.absmax))
+        const bool useGorillaDamageHull =
+            SV_GorillaUseDamageHullForTarget(clip, target);
+        const qvec3 targetMins = useGorillaDamageHull
+                                     ? SV_GorillaDamageHullMins()
+                                     : target->v.mins;
+        const qvec3 targetMaxs = useGorillaDamageHull
+                                     ? SV_GorillaDamageHullMaxs()
+                                     : target->v.maxs;
+        const qvec3 targetAbsMin = useGorillaDamageHull
+                                       ? target->v.origin + targetMins
+                                       : target->v.absmin;
+        const qvec3 targetAbsMax = useGorillaDamageHull
+                                       ? target->v.origin + targetMaxs
+                                       : target->v.absmax;
+
+        if(!quake::util::boxIntersection(
+               clip->boxmins, clip->boxmaxs, targetAbsMin, targetAbsMax))
         {
             continue;
         }
@@ -1271,8 +1347,12 @@ void SV_ClipToLinks(areanode_t* node, moveclip_t* clip)
         }
         else
         {
-            trace = SV_ClipMoveToEntity(
-                target, clip->start, clip->mins, clip->maxs, clip->end);
+            trace = useGorillaDamageHull
+                        ? SV_ClipMoveToEntityWithVirtualBounds(target,
+                              clip->start, clip->mins, clip->maxs, clip->end,
+                              targetMins, targetMaxs)
+                        : SV_ClipMoveToEntity(target, clip->start, clip->mins,
+                              clip->maxs, clip->end);
         }
 
         // QSS

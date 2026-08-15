@@ -107,7 +107,7 @@ void() OgreFireGrenade =
     missile.classname = "ogre_grenade";
 
     // HONEY
-    trajectory = self.enemy.origin - self.origin;
+    trajectory = AI_GrenadeTargetPoint(self.enemy) - self.origin;
     missile.velocity = normalize(trajectory);
 
     // set missile speed

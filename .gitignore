@@ -213,6 +213,12 @@ vcpkg_installed/
 
 # Local game state
 ReleaseFiles/Id1/*.sav
+ReleaseFiles/Id1/gorilla_locomotion_debug.csv
+
+# External/expanded Id1 lighting and texture assets
+ReleaseFiles/Id1/maps/*.lit
+ReleaseFiles/Id1/textures/*.tga
+ReleaseFiles/Id1/textures/**/*.tga
 
 # Local debug build output
 ReleaseFiles/quakevr-debug.exe
