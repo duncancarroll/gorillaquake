@@ -192,7 +192,7 @@ DEFINE_FCVAR_ARCHIVE(vr_gorilla_slide_factor, 0.03);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_precision, 0.995);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_history_size, 8);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_haptics, 1);
-DEFINE_FCVAR(vr_gorilla_debug, 1, CVAR_NONE);
+DEFINE_FCVAR(vr_gorilla_debug, 0, CVAR_NONE);
 DEFINE_FCVAR_ARCHIVE(vr_forcegrabbable_ammo_boxes, 1);
 DEFINE_FCVAR_ARCHIVE(vr_forcegrabbable_health_boxes, 1);
 DEFINE_FCVAR_ARCHIVE(vr_forcegrabbable_return_time_deathmatch, 4);

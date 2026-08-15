@@ -1627,6 +1627,16 @@ void SV_GorillaMaybeAutoDumpMovementLog()
     return value - normal * DotProduct(value, normal);
 }
 
+[[nodiscard]] qfloat SV_GorillaBspPointHullTraceRadius(
+    const qfloat radius, const qfloat precision) noexcept
+{
+    // Quake BSP models only have point/player/monster hulls. A swept box that is
+    // 3+ units wide selects the baked player hull, which can collide well in
+    // front of the rendered wall. Keep Gorilla hands on hull 0 for map geometry.
+    constexpr qfloat maxPointHullRadius = 1.4_qf;
+    return std::clamp(radius * precision, 0.25_qf, maxPointHullRadius);
+}
+
 [[nodiscard]] bool SV_GorillaHandTrace(edict_t* const ent,
     const qvec3& start, const qfloat radius, const qvec3& movement,
     const qfloat precision, qvec3& endPosition, trace_t& hitInfo)
@@ -1637,7 +1647,8 @@ void SV_GorillaMaybeAutoDumpMovementLog()
         return false;
     }
 
-    const qfloat tracedRadius = std::max(0.25_qf, radius * precision);
+    const qfloat tracedRadius =
+        SV_GorillaBspPointHullTraceRadius(radius, precision);
     const qvec3 extents{tracedRadius, tracedRadius, tracedRadius};
 
     hitInfo = SV_Move(start, -extents, extents, start + movement, MOVE_NORMAL,
