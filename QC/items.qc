@@ -1,6 +1,11 @@
 /* ALL LIGHTS SHOULD BE 0 1 0 IN COLOR ALL OTHER ITEMS SHOULD
 BE .8 .3 .4 IN COLOR */
 
+float(entity ent) VR_RightHandWeaponsOnly =
+{
+    return ent.ishuman && cvar_hget(cvarh_vr_right_hand_weapons_only);
+}
+
 void(entity entPlayer) VRItemPickupHaptic =
 {
     if(!entPlayer.ishuman)
@@ -551,17 +556,6 @@ void() weapon_touch =
         }
     }
 
-    // Do not pick up the weapon if body interactions is enabled and no hands
-    // are free.
-    if(other.ishuman && touchinghandIsBody &&
-        !VRIsHandEmpty(other, cVR_MainHand) &&
-        !VRIsHandEmpty(other, cVR_OffHand))
-    {
-        // TODO VR: (P1) revisit this behavior, maybe put in holder or drop?
-        // or cvar?
-        return;
-    }
-
     // If `other` is a bot, they will always drop their main hand weapon.
 
     if(deathmatch == 2 || coop)
@@ -616,6 +610,10 @@ void() weapon_touch =
                 VRSetWeapon(cVR_MainHand, weaponId);
                 W_SetCurrentAmmoFor(cVR_MainHand);
             }
+            else if(VR_RightHandWeaponsOnly(other))
+            {
+                W_SetCurrentAmmo();
+            }
             else if(VRIsHandEmpty(other, cVR_OffHand))
             {
                 VRSetWeapon(cVR_OffHand, weaponId);
@@ -623,7 +621,7 @@ void() weapon_touch =
             }
             else
             {
-                bprint("BUG: Attempting to pick weapon with no hands free.");
+                W_SetCurrentAmmo();
             }
         }
         else
@@ -638,6 +636,27 @@ void() weapon_touch =
     {
         float touchinghand;
         touchinghand = VRGetTouchingHand(other);
+
+        if(VR_RightHandWeaponsOnly(other))
+        {
+            if(VRIsHandEmpty(other, cVR_MainHand))
+            {
+                VRSetWeapon(cVR_MainHand, weaponId);
+                W_SetCurrentAmmoFor(cVR_MainHand);
+            }
+            else
+            {
+                W_SetCurrentAmmo();
+            }
+            self = stemp;
+
+            if(leave)
+                return;
+
+            self.model = string_null;
+            self.solid = SOLID_NOT;
+            return;
+        }
 
         if(!VRIsHandEmpty(other, touchinghand))
         {

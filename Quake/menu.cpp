@@ -1620,8 +1620,14 @@ void M_Options_Key(int k)
          "Gorilla Arm Length", vr_gorilla_max_arm_length, {1.f, 24.f, 96.f})
         .tooltip("Maximum hand reach from the estimated player head.");
 
+    m.add_cvar_entry<float>(
+         "Gorilla Hand Unstick", vr_gorilla_unstick_distance,
+         {1.f, 2.f, 48.f})
+        .tooltip("Controller-to-anchored-hand distance required to release a "
+                 "stuck Gorilla hand.");
+
     m.add_cvar_entry<float>("Gorilla Push Mult", vr_gorilla_jump_multiplier,
-         {0.5f, 1.f, 16.f})
+         {0.05f, 0.f, 4.f})
         .tooltip("Launch velocity multiplier for hand-surface push-offs.");
 
     m.add_cvar_entry<float>(
@@ -1630,12 +1636,14 @@ void M_Options_Key(int k)
         .tooltip("Minimum controller speed needed to launch from hand contact.");
 
     m.add_cvar_entry<float>("Gorilla Jump Speed", vr_gorilla_max_jump_speed,
-         {10.f, 100.f, 1200.f})
-        .tooltip("Maximum launch velocity from hand-surface pushes.");
+         {50.f, 0.f, 4000.f})
+        .tooltip("Maximum launch velocity from hand-surface pushes. Set to 0 "
+                 "for uncapped.");
 
     m.add_cvar_entry<float>(
-         "Gorilla Up Speed", vr_gorilla_max_vertical_speed, {10.f, 50.f, 400.f})
-        .tooltip("Maximum upward velocity from hand-surface push-offs.");
+         "Gorilla Up Speed", vr_gorilla_max_vertical_speed, {50.f, 0.f, 4000.f})
+        .tooltip("Maximum upward velocity from hand-surface push-offs. Set to "
+                 "0 for uncapped.");
 
     m.add_cvar_entry<float>("Gorilla Tele Exit", vr_gorilla_teleport_exit_nudge,
          {1.f, 0.f, 96.f})
@@ -1643,7 +1651,7 @@ void M_Options_Key(int k)
                  "is enabled.");
 
     m.add_cvar_entry<float>(
-         "Gorilla Unstick", vr_gorilla_player_unstick_distance,
+         "Gorilla Body Unstick", vr_gorilla_player_unstick_distance,
          {1.f, 0.f, 192.f})
         .tooltip("Maximum distance Gorilla Locomotion can move back to the "
                  "last clear player position when embedded.");
@@ -1979,6 +1987,11 @@ void M_Options_Key(int k)
         .tooltip(
             "Allows or disallows cycling weapons using controller buttons.");
 
+    m.add_cvar_entry<bool>(
+         "Right Hand Weapons Only", vr_right_hand_weapons_only)
+        .tooltip("Prevents the left hand from equipping, cycling, grabbing, or "
+                 "firing weapons.");
+
     // ------------------------------------------------------------------------
     m.add_separator();
     // ------------------------------------------------------------------------
@@ -2015,12 +2028,11 @@ void M_Options_Key(int k)
     m.add_cvar_getter_enum_entry<VrEnemyDrops>( //
          "Enemy Weapon Drops",                  //
          [] { return &vr_enemy_drops; },        //
-         "When Eligible", "Always", "Disabled"  //
+        "When Eligible", "Always", "Disabled"  //
          )
         .tooltip(
-            "Controls random enemy weapon drops. 'Eligible' means that the "
-            "player has obtained a weapon before through a level weapon "
-            "pickup.");
+            "Controls optional random enemy weapon drops. Level weapon pickups "
+            "still immediately add the weapon to the player's inventory.");
 
     m.add_cvar_entry<float>("Enemy W. Drops Chance Mult.",
          vr_enemy_drops_chance_mult, {0.05f, 0.05f, 5.f}) //
@@ -2033,12 +2045,12 @@ void M_Options_Key(int k)
     m.add_cvar_getter_enum_entry<VrAmmoBoxDrops>( //
          "Ammo Box Weapon Drops",                 //
          [] { return &vr_ammobox_drops; },        //
-         "When Eligible", "Always", "Disabled"    //
+        "When Eligible", "Always", "Disabled"    //
          )
         .tooltip(
-            "Controls random ammo box weapon drops. 'Eligible' means that the "
-            "player has obtained a weapon before through a level weapon "
-            "pickup.");
+            "Controls optional random ammo box weapon drops. Level weapon "
+            "pickups still immediately add the weapon to the player's "
+            "inventory.");
 
     m.add_cvar_entry<float>("Ammo Box W. Drops Chance Mult.",
          vr_ammobox_drops_chance_mult, {0.05f, 0.05f, 5.f}) //

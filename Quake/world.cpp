@@ -399,6 +399,30 @@ which could potentially corrupt the list while it's being iterated.
 Based on code from Spike.
 ====================
 */
+[[nodiscard]] static bool SV_GorillaUseExpandedPickupTouch(
+    const edict_t* ent) noexcept
+{
+    return vr_enabled.value && vr_gorilla_locomotion.value &&
+           vr_body_interactions.value && quake::util::hasFlag(ent, FL_CLIENT) &&
+           ent->v.ishuman;
+}
+
+[[nodiscard]] static bool SV_GorillaPickupBoxIntersection(
+    const edict_t* ent, const edict_t* target) noexcept
+{
+    if(!SV_GorillaUseExpandedPickupTouch(ent) ||
+        !quake::util::hasFlag(target, FL_ITEM))
+    {
+        return false;
+    }
+
+    const qvec3 pickupMins{-16.f, -16.f, -24.f};
+    const qvec3 pickupMaxs{16.f, 16.f, 32.f};
+
+    return quake::util::boxIntersection(ent->v.origin + pickupMins,
+        ent->v.origin + pickupMaxs, target->v.absmin, target->v.absmax);
+}
+
 void SV_TouchLinks(edict_t* ent)
 {
     const int mark = Hunk_LowMark();
@@ -408,15 +432,32 @@ void SV_TouchLinks(edict_t* ent)
 
     int listcount = 0;
 
+    const qvec3 oldAbsMin = ent->v.absmin;
+    const qvec3 oldAbsMax = ent->v.absmax;
+
+    if(SV_GorillaUseExpandedPickupTouch(ent))
+    {
+        const qvec3 pickupMins = ent->v.origin + qvec3{-16.f, -16.f, -24.f};
+        const qvec3 pickupMaxs = ent->v.origin + qvec3{16.f, 16.f, 32.f};
+
+        ent->v.absmin = glm::min(ent->v.absmin, pickupMins);
+        ent->v.absmax = glm::max(ent->v.absmax, pickupMaxs);
+    }
+
     // QSS
     SV_AreaTriggerEdicts(
         ent, qcvm->areanodes, list, &listcount, qcvm->num_edicts);
 
+    ent->v.absmin = oldAbsMin;
+    ent->v.absmax = oldAbsMax;
+
     const auto doTouch = [](edict_t* ent, edict_t* target)
     {
         const bool canBeTouched = quake::util::canBeTouched(target);
+        const bool intersects = quake::util::entBoxIntersection(ent, target) ||
+                                SV_GorillaPickupBoxIntersection(ent, target);
 
-        if(!canBeTouched || !quake::util::entBoxIntersection(ent, target))
+        if(!canBeTouched || !intersects)
         {
             return;
         }

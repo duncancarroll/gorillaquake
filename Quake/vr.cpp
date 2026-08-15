@@ -3119,6 +3119,18 @@ static void VR_Do2HAimingImpl(Vr2HMode vr2HMode, const qvec3 (&originalRots)[2],
 
 static void VR_Do2HAiming(const qvec3 (&originalRots)[2])
 {
+    if(vr_gorilla_locomotion.value != 0.f)
+    {
+        for(int handIdx = 0; handIdx < 2; ++handIdx)
+        {
+            vr_should_aim_2h[handIdx] = false;
+            vr_active_2h_helping_hand[handIdx] = false;
+            vr_2h_aim_transition[handIdx] = 0.f;
+            vr_2h_aim_stock_transition[handIdx] = 0.f;
+        }
+        return;
+    }
+
     const auto vr2HMode = cvarToEnum<Vr2HMode>(vr_2h_mode);
 
     if(vr2HMode == Vr2HMode::Disabled)

@@ -318,11 +318,10 @@ bool SV_GorillaBounceBodyFromTrace(
         bounceVelocity += normal * (minOutwardSpeed - outwardSpeed);
     }
 
-    const qfloat maxBounceSpeed = std::max(
-        static_cast<qfloat>(vr_gorilla_max_jump_speed.value), 1400._qf) *
-                                  0.5_qf;
+    const qfloat maxBounceSpeed =
+        static_cast<qfloat>(vr_gorilla_max_jump_speed.value);
     const qfloat bounceSpeed = glm::length(bounceVelocity);
-    if(bounceSpeed > maxBounceSpeed)
+    if(maxBounceSpeed > 0._qf && bounceSpeed > maxBounceSpeed)
     {
         bounceVelocity = safeNormalize(bounceVelocity) * maxBounceSpeed;
     }
@@ -1298,11 +1297,18 @@ struct GorillaMovementLogHand
     qvec3 contactAnchor{vec3_zero};
     qvec3 movement{vec3_zero};
     qvec3 cmdVelocity{vec3_zero};
+    qvec3 unstickTraceEnd{vec3_zero};
     qfloat cmdVelocityMagnitude{0.f};
+    qfloat unstickDistance{0.f};
     bool colliding{false};
     bool previousTouching{false};
     bool touching{false};
     bool fallbackUsed{false};
+    bool unstickAttempted{false};
+    bool unstuck{false};
+    bool unstickPathBlocked{false};
+    bool unstickStartSolid{false};
+    bool unstickAllSolid{false};
 };
 
 struct GorillaMovementLogFrame
@@ -1562,12 +1568,18 @@ void SV_GorillaWriteCsvHeader(FILE* const file)
             "%s_contact_anchor_x,%s_contact_anchor_y,%s_contact_anchor_z,"
             "%s_movement_x,%s_movement_y,%s_movement_z,"
             "%s_cmd_velocity_x,%s_cmd_velocity_y,%s_cmd_velocity_z,"
+            "%s_unstick_trace_end_x,%s_unstick_trace_end_y,"
+            "%s_unstick_trace_end_z,"
             "%s_cmd_velocity_mag_field,%s_cmd_velocity_mag_vec,"
-            "%s_colliding,%s_previous_touching,%s_touching,%s_fallback_used",
+            "%s_unstick_distance,"
+            "%s_colliding,%s_previous_touching,%s_touching,%s_fallback_used,"
+            "%s_unstick_attempted,%s_unstuck,%s_unstick_path_blocked,"
+            "%s_unstick_startsolid,%s_unstick_allsolid",
             handName, handName, handName, handName, handName, handName,
             handName, handName, handName, handName, handName, handName,
             handName, handName, handName, handName, handName, handName,
-            handName, handName, handName);
+            handName, handName, handName, handName, handName, handName,
+            handName, handName, handName, handName, handName, handName);
     }
 
     std::fprintf(file, "\n");
@@ -1623,10 +1635,15 @@ void SV_GorillaWriteCsvFrame(
         SV_GorillaWriteCsvVec(file, hand.contactAnchor);
         SV_GorillaWriteCsvVec(file, hand.movement);
         SV_GorillaWriteCsvVec(file, hand.cmdVelocity);
-        std::fprintf(file, ",%.6f,%.6f,%d,%d,%d,%d",
+        SV_GorillaWriteCsvVec(file, hand.unstickTraceEnd);
+        std::fprintf(file, ",%.6f,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%d",
             hand.cmdVelocityMagnitude, glm::length(hand.cmdVelocity),
+            hand.unstickDistance,
             hand.colliding ? 1 : 0, hand.previousTouching ? 1 : 0,
-            hand.touching ? 1 : 0, hand.fallbackUsed ? 1 : 0);
+            hand.touching ? 1 : 0, hand.fallbackUsed ? 1 : 0,
+            hand.unstickAttempted ? 1 : 0, hand.unstuck ? 1 : 0,
+            hand.unstickPathBlocked ? 1 : 0,
+            hand.unstickStartSolid ? 1 : 0, hand.unstickAllSolid ? 1 : 0);
     }
 
     std::fprintf(file, "\n");
@@ -1849,6 +1866,47 @@ void SV_GorillaMarkLastMovementLogUnstick(GorillaLocomotionState& state,
     // front of the rendered wall. Keep Gorilla hands on hull 0 for map geometry.
     constexpr qfloat maxPointHullRadius = 1.4_qf;
     return std::clamp(radius * precision, 0.25_qf, maxPointHullRadius);
+}
+
+[[nodiscard]] bool SV_GorillaHandUnstickPathClear(edict_t* const ent,
+    const qvec3& headPos, const qvec3& currentHand, const qfloat radius,
+    const qfloat precision, trace_t& trace)
+{
+    const qvec3 toHand = currentHand - headPos;
+    const qfloat distance = glm::length(toHand);
+    const qfloat tracedRadius =
+        SV_GorillaBspPointHullTraceRadius(radius, precision);
+
+    trace = {};
+    trace.fraction = 1.f;
+    trace.endpos = currentHand;
+
+    if(distance <= tracedRadius + 0.001_qf)
+    {
+        return true;
+    }
+
+    const qvec3 direction = toHand / distance;
+    const qvec3 traceEnd =
+        headPos + direction * std::max(0._qf, distance - tracedRadius);
+    const qvec3 extents{tracedRadius, tracedRadius, tracedRadius};
+
+    trace = SV_Move(headPos, -extents, extents, traceEnd, MOVE_NORMAL, ent);
+    if(trace.allsolid || trace.startsolid || quake::util::hitSomething(trace))
+    {
+        return false;
+    }
+
+    const trace_t rayTrace = SV_MoveTrace(headPos, traceEnd, MOVE_NORMAL, ent);
+    if(rayTrace.allsolid || rayTrace.startsolid ||
+        quake::util::hitSomething(rayTrace))
+    {
+        trace = rayTrace;
+        return false;
+    }
+
+    trace.endpos = traceEnd;
+    return true;
 }
 
 [[nodiscard]] bool SV_GorillaHandTrace(edict_t* const ent,
@@ -2087,8 +2145,7 @@ bool SV_GorillaApplyLaunch(GorillaLocomotionState& state, edict_t* const ent,
     }
 
     const qfloat jumpMultiplier = std::max(
-        static_cast<qfloat>(vr_gorilla_jump_multiplier.value), 8._qf) *
-                                  0.5_qf;
+        static_cast<qfloat>(vr_gorilla_jump_multiplier.value), 0._qf);
 
     qvec3 launchDirection = currentSpeed > 0.001_qf
                                  ? currentVelocity / currentSpeed
@@ -2130,20 +2187,16 @@ bool SV_GorillaApplyLaunch(GorillaLocomotionState& state, edict_t* const ent,
     launch = launchDirection * launchSourceSpeed * jumpMultiplier;
 
     const qfloat launchSpeed = glm::length(launch);
-    const qfloat maxJumpSpeed = std::max(
-        static_cast<qfloat>(vr_gorilla_max_jump_speed.value), 1400._qf) *
-                                 0.5_qf;
-    if(launchSpeed > maxJumpSpeed)
+    const qfloat maxJumpSpeed =
+        static_cast<qfloat>(vr_gorilla_max_jump_speed.value);
+    if(maxJumpSpeed > 0._qf && launchSpeed > maxJumpSpeed)
     {
         launch = safeNormalize(launch) * maxJumpSpeed;
     }
 
-    const qfloat maxVerticalSpeed = std::clamp(
-        std::max(static_cast<qfloat>(vr_gorilla_max_vertical_speed.value),
-            360._qf) *
-            0.5_qf,
-        0._qf, 400._qf);
-    if(launch[2] > maxVerticalSpeed)
+    const qfloat maxVerticalSpeed =
+        static_cast<qfloat>(vr_gorilla_max_vertical_speed.value);
+    if(maxVerticalSpeed > 0._qf && launch[2] > maxVerticalSpeed)
     {
         const qfloat verticalScale = maxVerticalSpeed / launch[2];
         launch *= verticalScale;
@@ -2271,6 +2324,13 @@ bool SV_GorillaLocomotion(
     std::array<qvec3, 2> handMovement{};
     std::array<qvec3, 2> handTraceStart{};
     std::array<qvec3, 2> handDesiredEnd{};
+    std::array<qvec3, 2> handUnstickTraceEnd{};
+    std::array<qfloat, 2> handUnstickDistance{};
+    std::array<bool, 2> handUnstickAttempted{};
+    std::array<bool, 2> handUnstuck{};
+    std::array<bool, 2> handUnstickPathBlocked{};
+    std::array<bool, 2> handUnstickStartSolid{};
+    std::array<bool, 2> handUnstickAllSolid{};
     const std::array<bool, 2> fallbackUsed{offFallback, mainFallback};
     const std::array<bool, 2> previousTouching{
         state.hands[cVR_OffHand].touching,
@@ -2421,6 +2481,8 @@ bool SV_GorillaLocomotion(
 
     for(int hand = 0; hand < 2; ++hand)
     {
+        handUnstickTraceEnd[hand] = currentHands[hand];
+
         if(!colliding[hand])
         {
             state.hands[hand].touching = false;
@@ -2429,16 +2491,27 @@ bool SV_GorillaLocomotion(
 
         const qvec3 toCurrentHand =
             currentHands[hand] - state.hands[hand].lastPos;
-        if(glm::length(toCurrentHand) > vr_gorilla_unstick_distance.value)
+        handUnstickDistance[hand] = glm::length(toCurrentHand);
+
+        const qfloat handUnstickDistanceThreshold = std::max(
+            0._qf, static_cast<qfloat>(vr_gorilla_unstick_distance.value));
+        if(handUnstickDistance[hand] > handUnstickDistanceThreshold)
         {
-            const trace_t unstickTrace = SV_Move(headPos,
-                {-radius, -radius, -radius}, {radius, radius, radius},
-                currentHands[hand], MOVE_NORMAL, ent);
-            if(!quake::util::hitSomething(unstickTrace) &&
-                !unstickTrace.startsolid)
+            handUnstickAttempted[hand] = true;
+
+            trace_t unstickTrace;
+            const bool pathClear = SV_GorillaHandUnstickPathClear(ent, headPos,
+                currentHands[hand], radius, precision, unstickTrace);
+            handUnstickTraceEnd[hand] = unstickTrace.endpos;
+            handUnstickStartSolid[hand] = unstickTrace.startsolid;
+            handUnstickAllSolid[hand] = unstickTrace.allsolid;
+            handUnstickPathBlocked[hand] = !pathClear;
+
+            if(pathClear)
             {
                 state.hands[hand].lastPos = currentHands[hand];
                 colliding[hand] = false;
+                handUnstuck[hand] = true;
             }
         }
 
@@ -2493,12 +2566,19 @@ bool SV_GorillaLocomotion(
         logHand.contactAnchor = state.hands[hand].lastPos;
         logHand.movement = handMovement[hand];
         logHand.cmdVelocity = SV_GorillaCmdHandVelocity(move, hand);
+        logHand.unstickTraceEnd = handUnstickTraceEnd[hand];
         logHand.cmdVelocityMagnitude =
             SV_GorillaCmdHandVelocityMagnitudeField(move, hand);
+        logHand.unstickDistance = handUnstickDistance[hand];
         logHand.colliding = colliding[hand];
         logHand.previousTouching = previousTouching[hand];
         logHand.touching = state.hands[hand].touching;
         logHand.fallbackUsed = fallbackUsed[hand];
+        logHand.unstickAttempted = handUnstickAttempted[hand];
+        logHand.unstuck = handUnstuck[hand];
+        logHand.unstickPathBlocked = handUnstickPathBlocked[hand];
+        logHand.unstickStartSolid = handUnstickStartSolid[hand];
+        logHand.unstickAllSolid = handUnstickAllSolid[hand];
     }
 
     state.lastLogIndex = SV_GorillaRecordMovementLog(logFrame);

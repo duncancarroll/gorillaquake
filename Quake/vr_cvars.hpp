@@ -118,6 +118,7 @@ extern cvar_t vr_weapon_throw_mode;
 extern cvar_t vr_weapon_throw_damage_mult;
 extern cvar_t vr_weapon_throw_velocity_mult;
 extern cvar_t vr_weapon_cycle_mode;
+extern cvar_t vr_right_hand_weapons_only;
 extern cvar_t vr_melee_bloodlust;
 extern cvar_t vr_melee_bloodlust_mult;
 extern cvar_t vr_enemy_drops;

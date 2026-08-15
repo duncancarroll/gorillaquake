@@ -2956,7 +2956,8 @@ void() ImpulseCommands =
         }
     }
 
-    if(self.impulse == 12 && time >= self.offhand_attack_finished)
+    if(self.impulse == 12 && time >= self.offhand_attack_finished &&
+       !VR_RightHandWeaponsOnly(self))
     {
         if(getWeaponCycleMode() == QVR_WEAPONCYCLEMODE_ALLOWED)
         {
@@ -2976,7 +2977,8 @@ void() ImpulseCommands =
         }
     }
 
-    if(self.impulse == 16 && time >= self.offhand_attack_finished)
+    if(self.impulse == 16 && time >= self.offhand_attack_finished &&
+       !VR_RightHandWeaponsOnly(self))
     {
         if(getWeaponCycleMode() == QVR_WEAPONCYCLEMODE_ALLOWED)
         {
@@ -3557,6 +3559,11 @@ void(float xHand, entity ent, entity entPlayer,
 
 void(entity ent, entity entPlayer, float xHand) wpnthrow_forcegrab_instant_ent =
 {
+    if(VR_RightHandWeaponsOnly(entPlayer) && xHand == cVR_OffHand)
+    {
+        return;
+    }
+
     if(xHand == cVR_OffHand && VRIsHandEmpty(entPlayer, cVR_OffHand))
     {
         wpnthrow_handtouch_impl(cVR_OffHand, ent, entPlayer,
@@ -3572,6 +3579,11 @@ void(entity ent, entity entPlayer, float xHand) wpnthrow_forcegrab_instant_ent =
 float(entity ent, float xHand) wpnthrow_handtouch_ent_hand =
 {
     entity entPlayer = ent.handtouch_ent;
+
+    if(VR_RightHandWeaponsOnly(entPlayer) && xHand == cVR_OffHand)
+    {
+        return FALSE;
+    }
 
     if(!VRIsHandEmpty(entPlayer, xHand))
     {
@@ -4099,6 +4111,17 @@ void(entity ent, float xHand,
         return;
     }
 
+    if(VR_RightHandWeaponsOnly(ent) && xHand == cVR_OffHand)
+    {
+        if(!handEmpty)
+        {
+            VRSetHandEmpty(ent, xHand);
+            W_SetCurrentAmmoFor(xHand);
+        }
+
+        return;
+    }
+
     if(VRIsEntHandReloadingBit(ent, xHand))
     {
         VRTryReloadWeapon(ent, xHand, xWeapon, xWeaponFlags, xWeaponClip, xOutWeaponClip);
@@ -4118,7 +4141,10 @@ void(entity ent, float xHand,
            xHotspot == QVR_HS_OFFHAND_2H_GRAB ||
            xHotspot == QVR_HS_MAINHAND_2H_GRAB)
         {
-            DropWeaponInHand(ent, xHand, xWeapon, xWeaponFlags, xWeaponClip);
+            if(getWeaponMode() == QVR_WEAPONMODE_IMMERSIVE)
+            {
+                DropWeaponInHand(ent, xHand, xWeapon, xWeaponFlags, xWeaponClip);
+            }
         }
         // Put a weapon in a holster.
         else if(isHolsterHotspot(xHotspot))
@@ -4157,7 +4183,9 @@ void(entity ent, float xHand,
         // Swap weapon between hands.
         else if(xHotspot == QVR_HS_HAND_SWITCH)
         {
-            if(otherHandGrabbing && otherHandEmpty && time >= xOtherAttackFinished)
+            if(!VR_RightHandWeaponsOnly(ent) &&
+               otherHandGrabbing && otherHandEmpty &&
+               time >= xOtherAttackFinished)
             {
                 sound(ent, CHAN_BODY, "knight/sword2.wav", 0.7, ATTN_NORM);
 
@@ -4291,7 +4319,15 @@ void() W_Frame_Forcegrab =
     }
 
     W_Frame_Forcegrab_Impl(cVR_MainHand);
-    W_Frame_Forcegrab_Impl(cVR_OffHand);
+
+    if(VR_RightHandWeaponsOnly(self))
+    {
+        VR_ForceGrabUtil_EntStopForceGrabbing(self, cVR_OffHand);
+    }
+    else
+    {
+        W_Frame_Forcegrab_Impl(cVR_OffHand);
+    }
 }
 
 void() W_Frame =
@@ -4299,6 +4335,12 @@ void() W_Frame =
     if(self.impulse)
     {
         ImpulseCommands();
+    }
+
+    if(VR_RightHandWeaponsOnly(self) && !VRIsHandEmpty(self, cVR_OffHand))
+    {
+        VRSetHandEmpty(self, cVR_OffHand);
+        W_SetCurrentAmmoFor(cVR_OffHand);
     }
 
     UpdateHolsterHover(self);
@@ -4309,15 +4351,18 @@ void() W_Frame =
         self.last_2h_time = time;
     }
 
-    DoHandImpl(self, cVR_OffHand,
-               self.weapon2, &self.weapon2,
-               self.weaponflags2, &self.weaponflags2,
-               self.offhand_attack_finished, self.offhand_hotspot,
-               self.weapon, &self.weapon,
-               self.weaponflags, &self.weaponflags,
-               self.weaponclip2, &self.weaponclip2,
-               self.weaponclip, &self.weaponclip,
-               self.attack_finished);
+    if(!VR_RightHandWeaponsOnly(self))
+    {
+        DoHandImpl(self, cVR_OffHand,
+                   self.weapon2, &self.weapon2,
+                   self.weaponflags2, &self.weaponflags2,
+                   self.offhand_attack_finished, self.offhand_hotspot,
+                   self.weapon, &self.weapon,
+                   self.weaponflags, &self.weaponflags,
+                   self.weaponclip2, &self.weaponclip2,
+                   self.weaponclip, &self.weaponclip,
+                   self.attack_finished);
+    }
 
     DoHandImpl(self, cVR_MainHand,
                self.weapon, &self.weapon,

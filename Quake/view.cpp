@@ -1413,10 +1413,21 @@ static void V_SetupHandViewEnt(const FingerIdx fingerIdx, int anchorWpnCvar,
     entity_t* const anchor, entity_t* const hand, qvec3 handRot,
     const qvec3& extraOffset, const bool horizFlip, const bool ghost)
 {
-    assert(anchor->model != nullptr);
-
     auto [oPitch, oYaw, oRoll] =
         VR_GetWpnAngleOffsets(vr_hardcoded_wpn_cvar_fist);
+
+    if(ghost)
+    {
+        anchorWpnCvar = vr_hardcoded_wpn_cvar_fist;
+    }
+
+    const int handIdx = horizFlip ? cVR_OffHand : cVR_MainHand;
+    const bool anchorIsFist = anchorWpnCvar == vr_hardcoded_wpn_cvar_fist;
+
+    if(!anchorIsFist)
+    {
+        assert(anchor->model != nullptr);
+    }
 
     if(horizFlip)
     {
@@ -1428,27 +1439,20 @@ static void V_SetupHandViewEnt(const FingerIdx fingerIdx, int anchorWpnCvar,
     handRot[YAW] += oYaw;
     handRot[ROLL] += oRoll;
 
-    if(ghost)
-    {
-        anchorWpnCvar = vr_hardcoded_wpn_cvar_fist;
-    }
-
     const auto extraOffsets = VR_GetWpnHandOffsets(anchorWpnCvar) + extraOffset;
 
     const int anchorVertex = static_cast<int>(
         VR_GetWpnCVarValue(anchorWpnCvar, WpnCVar::HandAnchorVertex));
 
-    const bool hideHand =
+    bool hideHand =
+        !vr_gorilla_locomotion.value &&
         static_cast<bool>(VR_GetWpnCVarValue(anchorWpnCvar, WpnCVar::HideHand));
 
-    const int handIdx = horizFlip ? cVR_OffHand : cVR_MainHand;
-
-    auto pos = VR_GetScaledAndAngledAliasVertexPosition(
-        anchor, anchorVertex, extraOffsets, handRot, horizFlip);
-
-    if(anchorWpnCvar == vr_hardcoded_wpn_cvar_fist)
+    qvec3 pos = cl.handpos[handIdx];
+    if(!anchorIsFist)
     {
-        pos = cl.handpos[handIdx];
+        pos = VR_GetScaledAndAngledAliasVertexPosition(
+            anchor, anchorVertex, extraOffsets, handRot, horizFlip);
     }
 
     const int otherHandIdx = VR_OtherHand(handIdx);
@@ -1750,12 +1754,9 @@ static void V_RenderView_HandModels()
                                     const int handIdx, const qvec3& extraOffset,
                                     const bool horizFlip, const bool ghost)
     {
-        if(wpnEnt.model == nullptr)
-        {
-            return;
-        }
-
-        const int wpnCvar = VR_GetWpnCVarFromModel(wpnEnt.model);
+        const int wpnCvar = wpnEnt.model == nullptr
+                                ? vr_hardcoded_wpn_cvar_fist
+                                : VR_GetWpnCVarFromModel(wpnEnt.model);
 
         entity_t& otherWpnEnt =
             &wpnEnt == &cl.viewent ? cl.offhand_viewent : cl.viewent;

@@ -2603,12 +2603,38 @@ float(float xHand, float xWpnId, string xSound, void(float xHand) xWpnFn) DoXHan
     return FALSE;
 }
 
+float(float xHand) PlayerVRGorillaAllowsVelocityMelee =
+{
+    if(cvar_hget(cvarh_vr_gorilla_locomotion) == 0)
+    {
+        return TRUE;
+    }
+
+    float weaponId;
+    weaponId = self.weapon;
+    if(xHand == cVR_OffHand)
+    {
+        weaponId = self.weapon2;
+    }
+
+    return weaponId == WID_AXE || weaponId == WID_MJOLNIR;
+}
+
 void(float xHand, float xInMelee, float xHandVelMag,
      float* xOutMeleeAttackFinished, float* xOutInMelee, float* xMeleeHitSoundPlayed)
      PlayerVRMeleeImpl =
 {
     float vr_melee_threshold;
     vr_melee_threshold = cvar_hget(cvarh_vr_melee_threshold);
+
+    if(!PlayerVRGorillaAllowsVelocityMelee(xHand))
+    {
+        if(xHandVelMag <= vr_melee_threshold)
+        {
+            *xMeleeHitSoundPlayed = FALSE;
+        }
+        return;
+    }
 
     if(cvar_hget(cvarh_vr_enabled) == 1 && time >= xInMelee && xHandVelMag > vr_melee_threshold)
     {
@@ -2693,5 +2719,26 @@ void() PlayerVRMeleeHeadbutt =
 
 void() PlayerVRMelee =
 {
-    return;
+    if(cvar_hget(cvarh_vr_gorilla_locomotion) == 0)
+    {
+        PlayerVRMeleeHeadbutt();
+    }
+
+    PlayerVRMeleeImpl(
+        cVR_MainHand,
+        self.in_melee,
+        self.handvelmag,
+        &self.mainhand_melee_attack_finished,
+        &self.in_melee,
+        &self.melee_hit_sound_played
+    );
+
+    PlayerVRMeleeImpl(
+        cVR_OffHand,
+        self.offhand_in_melee,
+        self.offhandvelmag,
+        &self.offhand_melee_attack_finished,
+        &self.offhand_in_melee,
+        &self.offhand_melee_hit_sound_played
+    );
 }
