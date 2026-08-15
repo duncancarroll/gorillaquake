@@ -1624,6 +1624,11 @@ void M_Options_Key(int k)
          {0.5f, 1.f, 16.f})
         .tooltip("Launch velocity multiplier for hand-surface push-offs.");
 
+    m.add_cvar_entry<float>(
+         "Gorilla Jump Hand Speed", vr_gorilla_min_jump_hand_speed,
+         {0.25f, 0.25f, 6.f})
+        .tooltip("Minimum controller speed needed to launch from hand contact.");
+
     m.add_cvar_entry<float>("Gorilla Jump Speed", vr_gorilla_max_jump_speed,
          {10.f, 100.f, 1200.f})
         .tooltip("Maximum launch velocity from hand-surface pushes.");

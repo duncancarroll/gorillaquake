@@ -184,6 +184,7 @@ DEFINE_FCVAR_ARCHIVE(vr_gorilla_body_radius, 1.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_max_arm_length, 58.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_unstick_distance, 24.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_velocity_limit, 95.0);
+DEFINE_FCVAR_ARCHIVE(vr_gorilla_min_jump_hand_speed, 2.25);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_max_jump_speed, 700.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_max_vertical_speed, 180.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_jump_multiplier, 4.0);

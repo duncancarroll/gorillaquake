@@ -168,6 +168,7 @@ extern cvar_t vr_gorilla_body_radius;
 extern cvar_t vr_gorilla_max_arm_length;
 extern cvar_t vr_gorilla_unstick_distance;
 extern cvar_t vr_gorilla_velocity_limit;
+extern cvar_t vr_gorilla_min_jump_hand_speed;
 extern cvar_t vr_gorilla_max_jump_speed;
 extern cvar_t vr_gorilla_max_vertical_speed;
 extern cvar_t vr_gorilla_jump_multiplier;

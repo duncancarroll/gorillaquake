@@ -1753,11 +1753,10 @@ void SV_GorillaStoreVelocity(
 }
 
 [[nodiscard]] bool SV_GorillaLaunchContactIsIntentional(
-    const usercmd_t& move, const std::array<bool, 2>& colliding,
-    const std::array<bool, 2>& previousTouching)
+    const usercmd_t& move, const std::array<bool, 2>& colliding)
 {
-    constexpr qfloat minNewContactHandSpeed = 0.75_qf;
-    bool hasNewContact = false;
+    const qfloat minJumpHandSpeed = std::max(
+        static_cast<qfloat>(vr_gorilla_min_jump_hand_speed.value), 0._qf);
     for(int hand = 0; hand < 2; ++hand)
     {
         if(!colliding[hand])
@@ -1765,20 +1764,14 @@ void SV_GorillaStoreVelocity(
             continue;
         }
 
-        if(previousTouching[hand])
-        {
-            return true;
-        }
-
-        hasNewContact = true;
         if(SV_GorillaCmdHandVelocityMagnitude(move, hand) >=
-            minNewContactHandSpeed)
+            minJumpHandSpeed)
         {
             return true;
         }
     }
 
-    return !hasNewContact;
+    return false;
 }
 
 [[nodiscard]] qvec3 SV_GorillaFastestCollidingHandVelocity(
@@ -2144,7 +2137,7 @@ bool SV_GorillaLocomotion(
     }
 
     const bool launchContactIntentional =
-        SV_GorillaLaunchContactIsIntentional(move, colliding, previousTouching);
+        SV_GorillaLaunchContactIsIntentional(move, colliding);
     const qvec3 collidingHandVelocity =
         SV_GorillaFastestCollidingHandVelocity(move, colliding);
     SV_GorillaStoreVelocity(
