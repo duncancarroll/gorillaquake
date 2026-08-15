@@ -1500,6 +1500,7 @@ void MSG_WriteStaticOrBaseLine(sizebuf_t* buf, int idx, entity_state_t* state,
 
 
 static void SV_Pext_f();
+void SV_GorillaDumpMovementLog_f();
 
 /*
 ===============
@@ -1667,6 +1668,7 @@ void SV_Init()
 
     Cmd_AddCommand_ClientCommand("pext", SV_Pext_f);
     Cmd_AddCommand("sv_protocol", &SV_Protocol_f); // johnfitz
+    Cmd_AddCommand("vr_gorilla_dump_log", SV_GorillaDumpMovementLog_f);
 
     for(i = 0; i < MAX_MODELS; i++)
     {

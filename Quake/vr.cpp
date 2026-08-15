@@ -1974,8 +1974,16 @@ void SetHandPos(int index, entity_t& player)
 
         finalVec = resolvedHandPos;
 
-        finalVec = VR_UpdateGunWallCollisions(
-            playerEdict, index, vr_gun_wall_collision[index], finalVec);
+        if(vr_gorilla_locomotion.value == 0.f)
+        {
+            finalVec = VR_UpdateGunWallCollisions(
+                playerEdict, index, vr_gun_wall_collision[index], finalVec);
+        }
+        else
+        {
+            vr_gun_wall_collision[index]._colliding = false;
+            vr_gun_wall_collision[index]._ent = nullptr;
+        }
     }
 
     const auto oldHandpos = cl.handpos[index];

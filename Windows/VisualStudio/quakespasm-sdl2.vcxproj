@@ -581,6 +581,7 @@ make_pak.bat</Command>
     <ClInclude Include="..\..\Quake\view.hpp" />
     <ClInclude Include="..\..\Quake\vr.hpp" />
     <ClInclude Include="..\..\Quake\vr_cvars.hpp" />
+    <ClInclude Include="..\..\Quake\vr_gorilla_debug.hpp" />
     <ClInclude Include="..\..\Quake\vr_macros.hpp" />
     <ClInclude Include="..\..\Quake\vr_showfn.hpp" />
     <ClInclude Include="..\..\Quake\wad.hpp" />

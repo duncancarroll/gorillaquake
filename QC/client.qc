@@ -2693,23 +2693,5 @@ void() PlayerVRMeleeHeadbutt =
 
 void() PlayerVRMelee =
 {
-    PlayerVRMeleeHeadbutt();
-
-    PlayerVRMeleeImpl(
-        cVR_MainHand,
-        self.in_melee,
-        self.handvelmag,
-        &self.mainhand_melee_attack_finished,
-        &self.in_melee,
-        &self.melee_hit_sound_played
-    );
-
-    PlayerVRMeleeImpl(
-        cVR_OffHand,
-        self.offhand_in_melee,
-        self.offhandvelmag,
-        &self.offhand_melee_attack_finished,
-        &self.offhand_in_melee,
-        &self.offhand_melee_hit_sound_played
-    );
+    return;
 }

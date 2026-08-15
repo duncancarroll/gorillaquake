@@ -1,6 +1,7 @@
 #include "quakedef.hpp"
 #include "vr.hpp"
 #include "vr_cvars.hpp"
+#include "vr_gorilla_debug.hpp"
 #include "vr_showfn.hpp"
 #include "util.hpp"
 #include "quakeglm.hpp"
@@ -630,6 +631,125 @@ void show_menu_intersection_point()
 //
 //
 // ----------------------------------------------------------------------------
+// Show Gorilla Locomotion Debug
+// ----------------------------------------------------------------------------
+
+[[nodiscard]] qvec3 clamp_debug_vector(
+    const qvec3& v, const qfloat scale, const qfloat maxLength) noexcept
+{
+    qvec3 out = v * scale;
+    const qfloat length = glm::length(out);
+    if(length > maxLength && length > 0.001_qf)
+    {
+        out = safeNormalize(out) * maxLength;
+    }
+
+    return out;
+}
+
+void show_gorilla_debug()
+{
+    if(vr_gorilla_debug.value == 0.f || !vr_gorilla_debug_state.valid)
+    {
+        return;
+    }
+
+    const auto draw_line = [](const qvec3& a, const qvec3& b)
+    {
+        gl_vertex(a);
+        gl_vertex(b);
+    };
+
+    gl_showfn_guard guard;
+
+    guard.draw_points_and_lines(
+        [&]
+        {
+            for(int hand = 0; hand < 2; ++hand)
+            {
+                const vr_gorilla_debug_hand_t& debugHand =
+                    vr_gorilla_debug_state.hands[hand];
+
+                const bool mainHand = hand == cVR_MainHand;
+                const float handColorA = mainHand ? 1.f : 0.f;
+                const float handColorB = mainHand ? 0.f : 1.f;
+
+                glColor4f(handColorA, handColorB, 1.f, 0.55f);
+                draw_line(debugHand.trace_start, debugHand.desired_end);
+
+                if(debugHand.colliding)
+                {
+                    glColor4f(0.f, 1.f, 0.f, 0.9f);
+                }
+                else if(debugHand.touching || debugHand.previous_touching)
+                {
+                    glColor4f(1.f, 1.f, 0.f, 0.75f);
+                }
+                else
+                {
+                    glColor4f(0.6f, 0.6f, 0.6f, 0.45f);
+                }
+                draw_line(debugHand.contact_anchor, debugHand.desired_end);
+
+                glColor4f(1.f, 1.f, 1.f, 0.85f);
+                draw_line(debugHand.desired_end,
+                    debugHand.desired_end +
+                        clamp_debug_vector(debugHand.velocity, 18._qf, 64._qf));
+
+                glColor4f(0.f, 1.f, 0.35f, 0.85f);
+                draw_line(debugHand.desired_end,
+                    debugHand.desired_end +
+                        clamp_debug_vector(debugHand.movement, 1._qf, 64._qf));
+            }
+
+            const qvec3 origin = vr_gorilla_debug_state.origin;
+
+            glColor4f(1.f, 1.f, 0.f, 0.8f);
+            draw_line(origin, origin + vr_gorilla_debug_state.body_movement);
+
+            glColor4f(0.f, 1.f, 0.f, 0.8f);
+            draw_line(origin, origin + vr_gorilla_debug_state.actual_body_movement);
+
+            if(vr_gorilla_debug_state.launched)
+            {
+                glColor4f(1.f, 0.2f, 0.f, 0.95f);
+            }
+            else if(!vr_gorilla_debug_state.launch_contact_intentional)
+            {
+                glColor4f(0.55f, 0.55f, 0.55f, 0.65f);
+            }
+            else
+            {
+                glColor4f(1.f, 0.45f, 0.f, 0.75f);
+            }
+            draw_line(origin,
+                origin +
+                    clamp_debug_vector(vr_gorilla_debug_state.launch, 0.08_qf,
+                        96._qf));
+
+            if(vr_gorilla_debug_state.body_bounced)
+            {
+                glColor4f(1.f, 0.f, 1.f, 0.95f);
+                draw_line(origin + qvec3{0.f, 0.f, 8.f},
+                    origin + qvec3{0.f, 0.f, 24.f});
+            }
+
+            if(vr_gorilla_debug_state.player_trace_allsolid ||
+                vr_gorilla_debug_state.player_trace_startsolid)
+            {
+                glColor4f(1.f, 0.f, 0.f, 0.95f);
+                draw_line(origin + qvec3{-8.f, 0.f, 16.f},
+                    origin + qvec3{8.f, 0.f, 16.f});
+                draw_line(origin + qvec3{0.f, -8.f, 16.f},
+                    origin + qvec3{0.f, 8.f, 16.f});
+            }
+        });
+}
+
+//
+//
+//
+// ----------------------------------------------------------------------------
 // Show Anchor Vertex Impl
 // ----------------------------------------------------------------------------
 
@@ -791,6 +911,7 @@ void draw_all_show_helpers()
     show_wpn_button_anchor_vertex();
     show_wpn_text_anchor_vertex();
     show_muzzle_anchor_vertex();
+    show_gorilla_debug();
     show_menu_intersection_point();
 }
 
