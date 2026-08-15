@@ -1637,6 +1637,11 @@ void M_Options_Key(int k)
          "Gorilla Up Speed", vr_gorilla_max_vertical_speed, {10.f, 50.f, 400.f})
         .tooltip("Maximum upward velocity from hand-surface push-offs.");
 
+    m.add_cvar_entry<float>("Gorilla Tele Exit", vr_gorilla_teleport_exit_nudge,
+         {1.f, 0.f, 96.f})
+        .tooltip("Forward nudge after map teleporters while Gorilla Locomotion "
+                 "is enabled.");
+
     m.add_cvar_entry<bool>("Gorilla Debug", vr_gorilla_debug)
         .tooltip("Draws Gorilla Locomotion hand traces and launch vectors.");
 

@@ -188,6 +188,7 @@ DEFINE_FCVAR_ARCHIVE(vr_gorilla_min_jump_hand_speed, 2.25);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_max_jump_speed, 700.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_max_vertical_speed, 180.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_jump_multiplier, 4.0);
+DEFINE_FCVAR_ARCHIVE(vr_gorilla_teleport_exit_nudge, 32.0);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_slide_factor, 0.03);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_precision, 0.995);
 DEFINE_FCVAR_ARCHIVE(vr_gorilla_history_size, 8);

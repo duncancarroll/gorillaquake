@@ -172,6 +172,7 @@ extern cvar_t vr_gorilla_min_jump_hand_speed;
 extern cvar_t vr_gorilla_max_jump_speed;
 extern cvar_t vr_gorilla_max_vertical_speed;
 extern cvar_t vr_gorilla_jump_multiplier;
+extern cvar_t vr_gorilla_teleport_exit_nudge;
 extern cvar_t vr_gorilla_slide_factor;
 extern cvar_t vr_gorilla_precision;
 extern cvar_t vr_gorilla_history_size;

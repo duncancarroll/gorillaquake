@@ -413,6 +413,8 @@ void() teleport_touch =
 {
 entity    t;
 vector    org;
+vector    destination;
+float     gorillaTeleporterExitNudge;
 
     if(self.targetname != NULLSTR)
     {
@@ -443,20 +445,32 @@ vector    org;
 
 // spawn a tfog flash in front of the destination
     makevectors(t.mangle);
-    org = t.origin + 32 * v_forward;
+    destination = t.origin;
+    if(other.classname == "player" &&
+        cvar_hget(cvarh_vr_gorilla_locomotion) != 0)
+    {
+        gorillaTeleporterExitNudge =
+            cvar_hget(cvarh_vr_gorilla_teleport_exit_nudge);
+        if(gorillaTeleporterExitNudge > 0)
+            destination = destination + gorillaTeleporterExitNudge * v_forward;
+    }
+
+    org = destination + 32 * v_forward;
 
     spawn_tfog (org);
-    spawn_tdeath(t.origin, other);
+    spawn_tdeath(destination, other);
 
 // move the player and lock him down for a little while
     if(!other.health)
     {
-        other.origin = t.origin;
+        other.origin = destination;
+        other.teleport_target = destination;
         other.velocity = (v_forward * other.velocity_x) + (v_forward * other.velocity_y);
         return;
     }
 
-    setorigin(other, t.origin);
+    setorigin(other, destination);
+    other.teleport_target = destination;
     other.angles = t.mangle;
     if(other.classname == "player")
     {

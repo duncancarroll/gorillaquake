@@ -649,7 +649,9 @@ void show_menu_intersection_point()
 
 void show_gorilla_debug()
 {
-    if(vr_gorilla_debug.value == 0.f || !vr_gorilla_debug_state.valid)
+    constexpr bool gorillaDebugVisualsEnabled = false;
+    if(!gorillaDebugVisualsEnabled || vr_gorilla_debug.value == 0.f ||
+        !vr_gorilla_debug_state.valid)
     {
         return;
     }

@@ -1286,6 +1286,7 @@ struct GorillaLocomotionState
     double nextDebugPrintTime{0.0};
     int velocityIndex{0};
     int velocityCount{0};
+    int lastLogIndex{-1};
 };
 
 struct GorillaMovementLogHand
@@ -1305,6 +1306,7 @@ struct GorillaMovementLogHand
 struct GorillaMovementLogFrame
 {
     double time{0.0};
+    double serverTime{0.0};
     qfloat frametime{0.f};
     int clientIndex{0};
     qvec3 preOrigin{vec3_zero};
@@ -1322,6 +1324,25 @@ struct GorillaMovementLogFrame
     bool playerTraceAllSolid{false};
     bool playerTraceStartSolid{false};
     bool launchContactIntentional{false};
+    bool commandTeleporting{false};
+    bool mapTeleportDuringMove{false};
+    bool mapTeleportDuringFinalLink{false};
+    bool teleportCooldownActive{false};
+    bool gorillaStateInvalidatedForTeleport{false};
+    bool finalStuckStartSolid{false};
+    bool finalStuckAllSolid{false};
+    qfloat teleportTimeFrameStart{0.f};
+    qfloat teleportTimeBeforeFinalLink{0.f};
+    qfloat teleportTimeAfterFinalLink{0.f};
+    qfloat teleportExitNudge{0.f};
+    qvec3 commandTeleportTarget{vec3_zero};
+    qvec3 originBeforeFinalLink{vec3_zero};
+    qvec3 originAfterFinalLink{vec3_zero};
+    qvec3 velocityBeforeFinalLink{vec3_zero};
+    qvec3 velocityAfterFinalLink{vec3_zero};
+    qvec3 anglesAfterFinalLink{vec3_zero};
+    qvec3 teleportTargetAfterFinalLink{vec3_zero};
+    qvec3 finalStuckTraceEnd{vec3_zero};
     int flags{0};
     qfloat health{0.f};
     std::array<GorillaMovementLogHand, 2> hands{};
@@ -1431,7 +1452,7 @@ void SV_GorillaWriteCsvVec(FILE* const file, const qvec3& v)
 void SV_GorillaWriteCsvHeader(FILE* const file)
 {
     std::fprintf(file,
-        "time,dt,client,flags,health,"
+        "time,server_time,dt,client,flags,health,"
         "pre_origin_x,pre_origin_y,pre_origin_z,"
         "post_origin_x,post_origin_y,post_origin_z,"
         "pre_velocity_x,pre_velocity_y,pre_velocity_z,"
@@ -1442,7 +1463,30 @@ void SV_GorillaWriteCsvHeader(FILE* const file)
         "velocity_average_x,velocity_average_y,velocity_average_z,"
         "launch_x,launch_y,launch_z,"
         "launched,hands_anchored,body_bounced,player_trace_allsolid,"
-        "player_trace_startsolid,launch_contact_intentional");
+        "player_trace_startsolid,launch_contact_intentional,"
+        "command_teleporting,map_teleport_during_move,"
+        "map_teleport_during_final_link,teleport_cooldown_active,"
+        "gorilla_state_invalidated_for_teleport,final_stuck_startsolid,"
+        "final_stuck_allsolid,"
+        "teleport_time_frame_start,teleport_time_before_final_link,"
+        "teleport_time_after_final_link,teleport_exit_nudge,"
+        "command_teleport_target_x,command_teleport_target_y,"
+        "command_teleport_target_z,"
+        "origin_before_final_link_x,origin_before_final_link_y,"
+        "origin_before_final_link_z,"
+        "origin_after_final_link_x,origin_after_final_link_y,"
+        "origin_after_final_link_z,"
+        "velocity_before_final_link_x,velocity_before_final_link_y,"
+        "velocity_before_final_link_z,"
+        "velocity_after_final_link_x,velocity_after_final_link_y,"
+        "velocity_after_final_link_z,"
+        "angles_after_final_link_x,angles_after_final_link_y,"
+        "angles_after_final_link_z,"
+        "teleport_target_after_final_link_x,"
+        "teleport_target_after_final_link_y,"
+        "teleport_target_after_final_link_z,"
+        "final_stuck_trace_end_x,final_stuck_trace_end_y,"
+        "final_stuck_trace_end_z");
 
     for(const char* const handName : {"off", "main"})
     {
@@ -1466,8 +1510,9 @@ void SV_GorillaWriteCsvHeader(FILE* const file)
 void SV_GorillaWriteCsvFrame(
     FILE* const file, const GorillaMovementLogFrame& frame)
 {
-    std::fprintf(file, "%.6f,%.6f,%d,%d,%.1f", frame.time,
-        frame.frametime, frame.clientIndex, frame.flags, frame.health);
+    std::fprintf(file, "%.6f,%.6f,%.6f,%d,%d,%.1f", frame.time,
+        frame.serverTime, frame.frametime, frame.clientIndex, frame.flags,
+        frame.health);
     SV_GorillaWriteCsvVec(file, frame.preOrigin);
     SV_GorillaWriteCsvVec(file, frame.postOrigin);
     SV_GorillaWriteCsvVec(file, frame.preVelocity);
@@ -1482,6 +1527,24 @@ void SV_GorillaWriteCsvFrame(
         frame.playerTraceAllSolid ? 1 : 0,
         frame.playerTraceStartSolid ? 1 : 0,
         frame.launchContactIntentional ? 1 : 0);
+    std::fprintf(file, ",%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%.6f,%.6f",
+        frame.commandTeleporting ? 1 : 0,
+        frame.mapTeleportDuringMove ? 1 : 0,
+        frame.mapTeleportDuringFinalLink ? 1 : 0,
+        frame.teleportCooldownActive ? 1 : 0,
+        frame.gorillaStateInvalidatedForTeleport ? 1 : 0,
+        frame.finalStuckStartSolid ? 1 : 0,
+        frame.finalStuckAllSolid ? 1 : 0, frame.teleportTimeFrameStart,
+        frame.teleportTimeBeforeFinalLink, frame.teleportTimeAfterFinalLink,
+        frame.teleportExitNudge);
+    SV_GorillaWriteCsvVec(file, frame.commandTeleportTarget);
+    SV_GorillaWriteCsvVec(file, frame.originBeforeFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.originAfterFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.velocityBeforeFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.velocityAfterFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.anglesAfterFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.teleportTargetAfterFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.finalStuckTraceEnd);
 
     for(const GorillaMovementLogHand& hand : frame.hands)
     {
@@ -1499,13 +1562,16 @@ void SV_GorillaWriteCsvFrame(
     std::fprintf(file, "\n");
 }
 
-void SV_GorillaRecordMovementLog(const GorillaMovementLogFrame& frame) noexcept
+[[nodiscard]] int SV_GorillaRecordMovementLog(
+    const GorillaMovementLogFrame& frame) noexcept
 {
-    gorillaMovementLog[gorillaMovementLogWriteIndex] = frame;
+    const int index = gorillaMovementLogWriteIndex;
+    gorillaMovementLog[index] = frame;
     gorillaMovementLogWriteIndex =
         (gorillaMovementLogWriteIndex + 1) % cGorillaMovementLogCapacity;
     gorillaMovementLogCount =
         std::min(gorillaMovementLogCount + 1, cGorillaMovementLogCapacity);
+    return index;
 }
 
 void SV_GorillaDumpMovementLog(const bool quiet)
@@ -1574,6 +1640,64 @@ void SV_GorillaMaybeAutoDumpMovementLog()
 
     SV_GorillaDumpMovementLog(true);
     gorillaNextMovementLogAutoDumpTime = realtime + 10.0;
+}
+
+[[nodiscard]] bool SV_GorillaUpdateLastMovementLogTeleport(
+    const edict_t* const ent, const int clientIndex,
+    const qfloat teleportTimeFrameStart, const qvec3& originBeforeFinalLink,
+    const qvec3& velocityBeforeFinalLink,
+    const qfloat teleportTimeBeforeFinalLink, const bool commandTeleporting)
+{
+    if(clientIndex < 0 ||
+        clientIndex >= static_cast<int>(gorillaLocomotionStates.size()))
+    {
+        return false;
+    }
+
+    GorillaLocomotionState& state = gorillaLocomotionStates[clientIndex];
+    if(state.lastLogIndex < 0)
+    {
+        return false;
+    }
+
+    GorillaMovementLogFrame& frame = gorillaMovementLog[state.lastLogIndex];
+    constexpr qfloat teleportTimeEpsilon = 0.001_qf;
+    const qfloat teleportTimeAfterFinalLink = ent->v.teleport_time;
+    const trace_t stuckTrace = SV_Move(ent->v.origin, ent->v.mins, ent->v.maxs,
+        ent->v.origin, MOVE_NORMAL, const_cast<edict_t*>(ent));
+
+    const bool mapTeleportDuringMove =
+        !commandTeleporting &&
+        teleportTimeBeforeFinalLink >
+            teleportTimeFrameStart + teleportTimeEpsilon;
+    const bool mapTeleportDuringFinalLink =
+        !commandTeleporting &&
+        teleportTimeAfterFinalLink >
+            teleportTimeBeforeFinalLink + teleportTimeEpsilon;
+    const bool invalidateForTeleport =
+        commandTeleporting || mapTeleportDuringMove || mapTeleportDuringFinalLink;
+
+    frame.commandTeleporting = commandTeleporting;
+    frame.mapTeleportDuringMove = mapTeleportDuringMove;
+    frame.mapTeleportDuringFinalLink = mapTeleportDuringFinalLink;
+    frame.teleportCooldownActive = teleportTimeAfterFinalLink > qcvm->time;
+    frame.gorillaStateInvalidatedForTeleport = invalidateForTeleport;
+    frame.finalStuckStartSolid = stuckTrace.startsolid;
+    frame.finalStuckAllSolid = stuckTrace.allsolid;
+    frame.teleportTimeFrameStart = teleportTimeFrameStart;
+    frame.teleportTimeBeforeFinalLink = teleportTimeBeforeFinalLink;
+    frame.teleportTimeAfterFinalLink = teleportTimeAfterFinalLink;
+    frame.teleportExitNudge =
+        static_cast<qfloat>(vr_gorilla_teleport_exit_nudge.value);
+    frame.commandTeleportTarget = ent->v.teleport_target;
+    frame.originBeforeFinalLink = originBeforeFinalLink;
+    frame.originAfterFinalLink = ent->v.origin;
+    frame.velocityBeforeFinalLink = velocityBeforeFinalLink;
+    frame.velocityAfterFinalLink = ent->v.velocity;
+    frame.anglesAfterFinalLink = ent->v.angles;
+    frame.teleportTargetAfterFinalLink = ent->v.teleport_target;
+    frame.finalStuckTraceEnd = stuckTrace.endpos;
+    return invalidateForTeleport;
 }
 
 [[nodiscard]] bool SV_GorillaValidHandPosition(const qvec3& pos) noexcept
@@ -1988,6 +2112,7 @@ bool SV_GorillaLocomotion(
             clientIndex < static_cast<int>(gorillaLocomotionStates.size()))
         {
             gorillaLocomotionStates[clientIndex].initialized = false;
+            gorillaLocomotionStates[clientIndex].lastLogIndex = -1;
         }
         return false;
     }
@@ -2015,6 +2140,7 @@ bool SV_GorillaLocomotion(
         if(clientIndex < static_cast<int>(gorillaLocomotionStates.size()))
         {
             gorillaLocomotionStates[clientIndex].initialized = false;
+            gorillaLocomotionStates[clientIndex].lastLogIndex = -1;
         }
         return false;
     }
@@ -2025,6 +2151,7 @@ bool SV_GorillaLocomotion(
     }
 
     GorillaLocomotionState& state = gorillaLocomotionStates[clientIndex];
+    state.lastLogIndex = -1;
     if(!state.initialized)
     {
         SV_GorillaResetState(state, ent, move);
@@ -2221,6 +2348,7 @@ bool SV_GorillaLocomotion(
 
     GorillaMovementLogFrame logFrame;
     logFrame.time = realtime;
+    logFrame.serverTime = qcvm->time;
     logFrame.frametime = static_cast<qfloat>(host_frametime);
     logFrame.clientIndex = clientIndex;
     logFrame.preOrigin = preOrigin;
@@ -2238,6 +2366,19 @@ bool SV_GorillaLocomotion(
     logFrame.playerTraceAllSolid = playerTraceAllSolid;
     logFrame.playerTraceStartSolid = playerTraceStartSolid;
     logFrame.launchContactIntentional = launchContactIntentional;
+    logFrame.teleportTimeFrameStart = ent->v.teleport_time;
+    logFrame.teleportTimeBeforeFinalLink = ent->v.teleport_time;
+    logFrame.teleportTimeAfterFinalLink = ent->v.teleport_time;
+    logFrame.teleportExitNudge =
+        static_cast<qfloat>(vr_gorilla_teleport_exit_nudge.value);
+    logFrame.commandTeleportTarget = ent->v.teleport_target;
+    logFrame.originBeforeFinalLink = ent->v.origin;
+    logFrame.originAfterFinalLink = ent->v.origin;
+    logFrame.velocityBeforeFinalLink = ent->v.velocity;
+    logFrame.velocityAfterFinalLink = ent->v.velocity;
+    logFrame.anglesAfterFinalLink = ent->v.angles;
+    logFrame.teleportTargetAfterFinalLink = ent->v.teleport_target;
+    logFrame.finalStuckTraceEnd = ent->v.origin;
     logFrame.flags = preFlags;
     logFrame.health = preHealth;
 
@@ -2257,7 +2398,7 @@ bool SV_GorillaLocomotion(
         logHand.fallbackUsed = fallbackUsed[hand];
     }
 
-    SV_GorillaRecordMovementLog(logFrame);
+    state.lastLogIndex = SV_GorillaRecordMovementLog(logFrame);
     SV_GorillaMaybeAutoDumpMovementLog();
 
     if(vr_gorilla_debug.value != 0.f)
@@ -2380,6 +2521,8 @@ void SV_Physics_Client(edict_t* ent, int num)
         return; // unconnected slot
     }
 
+    const qfloat teleportTimeFrameStart = ent->v.teleport_time;
+
     //
     // call standard client pre-think
     //
@@ -2408,7 +2551,9 @@ void SV_Physics_Client(edict_t* ent, int num)
     //
     // decide which move function to call
     //
-    if(quake::util::hasFlag(ent->v.vrbits0, QVR_VRBITS0_TELEPORTING))
+    const bool commandTeleporting =
+        quake::util::hasFlag(ent->v.vrbits0, QVR_VRBITS0_TELEPORTING);
+    if(commandTeleporting)
     {
         if(!SV_RunThink(ent))
         {
@@ -2542,12 +2687,29 @@ void SV_Physics_Client(edict_t* ent, int num)
         // --------------------------------------------------------------------
     }
 
-    SV_GorillaStorePostPhysicsOrigin(ent, num - 1);
-
     //
     // call standard player post-think
     //
+    const qvec3 originBeforeFinalLink = ent->v.origin;
+    const qvec3 velocityBeforeFinalLink = ent->v.velocity;
+    const qfloat teleportTimeBeforeFinalLink = ent->v.teleport_time;
     SV_LinkEdict(ent, true);
+    const bool gorillaInvalidateForTeleport =
+        SV_GorillaUpdateLastMovementLogTeleport(ent, num - 1,
+            teleportTimeFrameStart, originBeforeFinalLink,
+            velocityBeforeFinalLink, teleportTimeBeforeFinalLink,
+            commandTeleporting);
+    if(gorillaInvalidateForTeleport && SV_GorillaLocomotionActiveForPlayer(ent))
+    {
+        if(num - 1 >= static_cast<int>(gorillaLocomotionStates.size()))
+        {
+            gorillaLocomotionStates.resize(num);
+        }
+        GorillaLocomotionState& state = gorillaLocomotionStates[num - 1];
+        state.initialized = false;
+        state.lastLogIndex = -1;
+    }
+    SV_GorillaStorePostPhysicsOrigin(ent, num - 1);
 
     pr_global_struct->time = qcvm->time;
     pr_global_struct->self = EDICT_TO_PROG(ent);

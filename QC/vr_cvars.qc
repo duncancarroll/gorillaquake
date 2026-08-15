@@ -67,6 +67,8 @@ float cvarh_vr_forcegrabbable_ammo_boxes;
 float cvarh_vr_forcegrabbable_health_boxes;
 float cvarh_vr_forcegrabbable_return_time_deathmatch;
 float cvarh_vr_forcegrabbable_return_time_singleplayer;
+float cvarh_vr_gorilla_locomotion;
+float cvarh_vr_gorilla_teleport_exit_nudge;
 float cvarh_vr_reload_mode;
 
 //
@@ -145,6 +147,8 @@ void() VR_CVars_InitAllHandles =
     VR_CVAR_HMAKE(vr_forcegrabbable_health_boxes);
     VR_CVAR_HMAKE(vr_forcegrabbable_return_time_deathmatch);
     VR_CVAR_HMAKE(vr_forcegrabbable_return_time_singleplayer);
+    VR_CVAR_HMAKE(vr_gorilla_locomotion);
+    VR_CVAR_HMAKE(vr_gorilla_teleport_exit_nudge);
     VR_CVAR_HMAKE(vr_reload_mode);
 
 #undef VR_CVAR_HMAKE
