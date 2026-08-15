@@ -1282,11 +1282,13 @@ struct GorillaLocomotionState
     std::array<qvec3, cGorillaMaxVelocityHistory> velocityHistory{};
     qvec3 velocityAverage{vec3_zero};
     qvec3 lastOrigin{vec3_zero};
+    qvec3 lastSafeOrigin{vec3_zero};
     double ignoreAnchorUntilTime{0.0};
     double nextDebugPrintTime{0.0};
     int velocityIndex{0};
     int velocityCount{0};
     int lastLogIndex{-1};
+    bool hasLastSafeOrigin{false};
 };
 
 struct GorillaMovementLogHand
@@ -1329,6 +1331,7 @@ struct GorillaMovementLogFrame
     bool mapTeleportDuringFinalLink{false};
     bool teleportCooldownActive{false};
     bool gorillaStateInvalidatedForTeleport{false};
+    bool gorillaPlayerUnstuck{false};
     bool finalStuckStartSolid{false};
     bool finalStuckAllSolid{false};
     qfloat teleportTimeFrameStart{0.f};
@@ -1342,6 +1345,9 @@ struct GorillaMovementLogFrame
     qvec3 velocityAfterFinalLink{vec3_zero};
     qvec3 anglesAfterFinalLink{vec3_zero};
     qvec3 teleportTargetAfterFinalLink{vec3_zero};
+    qvec3 gorillaUnstickFrom{vec3_zero};
+    qvec3 gorillaUnstickTo{vec3_zero};
+    qvec3 gorillaLastSafeOrigin{vec3_zero};
     qvec3 finalStuckTraceEnd{vec3_zero};
     int flags{0};
     qfloat health{0.f};
@@ -1393,6 +1399,60 @@ void SV_GorillaUpdatePlayerHull(edict_t* const ent) noexcept
     ent->v.mins = mins;
     ent->v.maxs = maxs;
     ent->v.size = maxs - mins;
+}
+
+[[nodiscard]] bool SV_GorillaOriginClear(
+    edict_t* const ent, const qvec3& origin)
+{
+    const trace_t trace =
+        SV_Move(origin, ent->v.mins, ent->v.maxs, origin, MOVE_NORMAL, ent);
+    return !trace.allsolid && !trace.startsolid &&
+           SV_TestEntityPositionCustomOrigin(ent, origin) == nullptr;
+}
+
+void SV_GorillaRememberSafeOrigin(
+    GorillaLocomotionState& state, edict_t* const ent)
+{
+    if(!SV_GorillaOriginClear(ent, ent->v.origin))
+    {
+        return;
+    }
+
+    state.lastSafeOrigin = ent->v.origin;
+    state.hasLastSafeOrigin = true;
+}
+
+[[nodiscard]] bool SV_GorillaRecoverToLastSafeOrigin(
+    GorillaLocomotionState& state, edict_t* const ent, qvec3& from, qvec3& to)
+{
+    from = ent->v.origin;
+    to = state.lastSafeOrigin;
+
+    if(!state.hasLastSafeOrigin || SV_GorillaOriginClear(ent, ent->v.origin))
+    {
+        return false;
+    }
+
+    const qfloat maxRecoveryDistance = std::max(0._qf,
+        static_cast<qfloat>(vr_gorilla_player_unstick_distance.value));
+    if(maxRecoveryDistance <= 0.001_qf ||
+        glm::length(state.lastSafeOrigin - ent->v.origin) > maxRecoveryDistance)
+    {
+        return false;
+    }
+
+    if(!SV_GorillaOriginClear(ent, state.lastSafeOrigin))
+    {
+        state.hasLastSafeOrigin = false;
+        return false;
+    }
+
+    ent->v.origin = state.lastSafeOrigin;
+    ent->v.oldorigin = state.lastSafeOrigin;
+    ent->v.velocity = vec3_zero;
+    state.initialized = false;
+    SV_LinkEdict(ent, false);
+    return true;
 }
 
 [[nodiscard]] bool SV_GorillaDebugEnabled() noexcept
@@ -1466,8 +1526,8 @@ void SV_GorillaWriteCsvHeader(FILE* const file)
         "player_trace_startsolid,launch_contact_intentional,"
         "command_teleporting,map_teleport_during_move,"
         "map_teleport_during_final_link,teleport_cooldown_active,"
-        "gorilla_state_invalidated_for_teleport,final_stuck_startsolid,"
-        "final_stuck_allsolid,"
+        "gorilla_state_invalidated_for_teleport,gorilla_player_unstuck,"
+        "final_stuck_startsolid,final_stuck_allsolid,"
         "teleport_time_frame_start,teleport_time_before_final_link,"
         "teleport_time_after_final_link,teleport_exit_nudge,"
         "command_teleport_target_x,command_teleport_target_y,"
@@ -1485,6 +1545,12 @@ void SV_GorillaWriteCsvHeader(FILE* const file)
         "teleport_target_after_final_link_x,"
         "teleport_target_after_final_link_y,"
         "teleport_target_after_final_link_z,"
+        "gorilla_unstick_from_x,gorilla_unstick_from_y,"
+        "gorilla_unstick_from_z,"
+        "gorilla_unstick_to_x,gorilla_unstick_to_y,"
+        "gorilla_unstick_to_z,"
+        "gorilla_last_safe_origin_x,gorilla_last_safe_origin_y,"
+        "gorilla_last_safe_origin_z,"
         "final_stuck_trace_end_x,final_stuck_trace_end_y,"
         "final_stuck_trace_end_z");
 
@@ -1527,12 +1593,13 @@ void SV_GorillaWriteCsvFrame(
         frame.playerTraceAllSolid ? 1 : 0,
         frame.playerTraceStartSolid ? 1 : 0,
         frame.launchContactIntentional ? 1 : 0);
-    std::fprintf(file, ",%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%.6f,%.6f",
+    std::fprintf(file, ",%d,%d,%d,%d,%d,%d,%d,%d,%.6f,%.6f,%.6f,%.6f",
         frame.commandTeleporting ? 1 : 0,
         frame.mapTeleportDuringMove ? 1 : 0,
         frame.mapTeleportDuringFinalLink ? 1 : 0,
         frame.teleportCooldownActive ? 1 : 0,
         frame.gorillaStateInvalidatedForTeleport ? 1 : 0,
+        frame.gorillaPlayerUnstuck ? 1 : 0,
         frame.finalStuckStartSolid ? 1 : 0,
         frame.finalStuckAllSolid ? 1 : 0, frame.teleportTimeFrameStart,
         frame.teleportTimeBeforeFinalLink, frame.teleportTimeAfterFinalLink,
@@ -1544,6 +1611,9 @@ void SV_GorillaWriteCsvFrame(
     SV_GorillaWriteCsvVec(file, frame.velocityAfterFinalLink);
     SV_GorillaWriteCsvVec(file, frame.anglesAfterFinalLink);
     SV_GorillaWriteCsvVec(file, frame.teleportTargetAfterFinalLink);
+    SV_GorillaWriteCsvVec(file, frame.gorillaUnstickFrom);
+    SV_GorillaWriteCsvVec(file, frame.gorillaUnstickTo);
+    SV_GorillaWriteCsvVec(file, frame.gorillaLastSafeOrigin);
     SV_GorillaWriteCsvVec(file, frame.finalStuckTraceEnd);
 
     for(const GorillaMovementLogHand& hand : frame.hands)
@@ -1698,6 +1768,26 @@ void SV_GorillaMaybeAutoDumpMovementLog()
     frame.teleportTargetAfterFinalLink = ent->v.teleport_target;
     frame.finalStuckTraceEnd = stuckTrace.endpos;
     return invalidateForTeleport;
+}
+
+void SV_GorillaMarkLastMovementLogUnstick(GorillaLocomotionState& state,
+    const edict_t* const ent, const qvec3& from, const qvec3& to)
+{
+    if(state.lastLogIndex < 0)
+    {
+        return;
+    }
+
+    GorillaMovementLogFrame& frame = gorillaMovementLog[state.lastLogIndex];
+    frame.gorillaPlayerUnstuck = true;
+    frame.gorillaUnstickFrom = from;
+    frame.gorillaUnstickTo = to;
+    frame.gorillaLastSafeOrigin = state.lastSafeOrigin;
+    frame.originAfterFinalLink = ent->v.origin;
+    frame.velocityAfterFinalLink = ent->v.velocity;
+    frame.finalStuckStartSolid = false;
+    frame.finalStuckAllSolid = false;
+    frame.finalStuckTraceEnd = ent->v.origin;
 }
 
 [[nodiscard]] bool SV_GorillaValidHandPosition(const qvec3& pos) noexcept
@@ -1946,6 +2036,7 @@ void SV_GorillaResetState(
     state.hands[cVR_OffHand].lastPos =
         SV_GorillaCmdHandPos(move, cVR_OffHand, offFallback);
     state.lastOrigin = ent->v.origin;
+    SV_GorillaRememberSafeOrigin(state, ent);
 
     if(SV_GorillaShouldPrint(state, true))
     {
@@ -2155,6 +2246,14 @@ bool SV_GorillaLocomotion(
     if(!state.initialized)
     {
         SV_GorillaResetState(state, ent, move);
+        return false;
+    }
+
+    qvec3 frameStartUnstickFrom;
+    qvec3 frameStartUnstickTo;
+    if(SV_GorillaRecoverToLastSafeOrigin(
+           state, ent, frameStartUnstickFrom, frameStartUnstickTo))
+    {
         return false;
     }
 
@@ -2378,6 +2477,10 @@ bool SV_GorillaLocomotion(
     logFrame.velocityAfterFinalLink = ent->v.velocity;
     logFrame.anglesAfterFinalLink = ent->v.angles;
     logFrame.teleportTargetAfterFinalLink = ent->v.teleport_target;
+    logFrame.gorillaUnstickFrom = ent->v.origin;
+    logFrame.gorillaUnstickTo = ent->v.origin;
+    logFrame.gorillaLastSafeOrigin =
+        state.hasLastSafeOrigin ? state.lastSafeOrigin : ent->v.origin;
     logFrame.finalStuckTraceEnd = ent->v.origin;
     logFrame.flags = preFlags;
     logFrame.health = preHealth;
@@ -2496,6 +2599,7 @@ void SV_GorillaStorePostPhysicsOrigin(
     if(state.initialized && SV_GorillaLocomotionActiveForPlayer(ent))
     {
         state.lastOrigin = ent->v.origin;
+        SV_GorillaRememberSafeOrigin(state, ent);
     }
 }
 } // namespace
@@ -2706,8 +2810,27 @@ void SV_Physics_Client(edict_t* ent, int num)
             gorillaLocomotionStates.resize(num);
         }
         GorillaLocomotionState& state = gorillaLocomotionStates[num - 1];
+        state.hasLastSafeOrigin = false;
+        SV_GorillaRememberSafeOrigin(state, ent);
         state.initialized = false;
         state.lastLogIndex = -1;
+    }
+    else if(SV_GorillaLocomotionActiveForPlayer(ent) && num - 1 >= 0 &&
+            num - 1 < static_cast<int>(gorillaLocomotionStates.size()))
+    {
+        GorillaLocomotionState& state = gorillaLocomotionStates[num - 1];
+        qvec3 unstickFrom;
+        qvec3 unstickTo;
+        if(SV_GorillaRecoverToLastSafeOrigin(
+               state, ent, unstickFrom, unstickTo))
+        {
+            SV_GorillaMarkLastMovementLogUnstick(
+                state, ent, unstickFrom, unstickTo);
+        }
+        else
+        {
+            SV_GorillaRememberSafeOrigin(state, ent);
+        }
     }
     SV_GorillaStorePostPhysicsOrigin(ent, num - 1);
 

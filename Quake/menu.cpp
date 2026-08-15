@@ -1642,6 +1642,12 @@ void M_Options_Key(int k)
         .tooltip("Forward nudge after map teleporters while Gorilla Locomotion "
                  "is enabled.");
 
+    m.add_cvar_entry<float>(
+         "Gorilla Unstick", vr_gorilla_player_unstick_distance,
+         {1.f, 0.f, 192.f})
+        .tooltip("Maximum distance Gorilla Locomotion can move back to the "
+                 "last clear player position when embedded.");
+
     m.add_cvar_entry<bool>("Gorilla Debug", vr_gorilla_debug)
         .tooltip("Draws Gorilla Locomotion hand traces and launch vectors.");
 
