@@ -1372,7 +1372,7 @@ int gorillaMovementLogCount{0};
     const edict_t* const ent) noexcept
 {
     return vr_gorilla_locomotion.value != 0.f && ent->v.health > 0 &&
-           ent->v.movetype == MOVETYPE_WALK;
+           ent->v.movetype == MOVETYPE_WALK && ent->v.waterlevel < 2;
 }
 
 [[nodiscard]] qvec3 SV_GorillaPlayerHullMins() noexcept

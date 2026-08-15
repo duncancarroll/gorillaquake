@@ -527,7 +527,33 @@ float(float w) RankForWeapon =
         return 8;
     if(w == WID_MJOLNIR)
         return 9;
-   return 10;
+    if(w == WID_SHOTGUN)
+        return 10;
+    if(w == WID_AXE)
+        return 11;
+    if(w == WID_FIST)
+        return 12;
+    if(w == WID_GRAPPLE)
+        return 13;
+   return 14;
+};
+
+float(float xHeldWeapon, float xPickupWeapon) ShouldSwitchToPickupWeapon =
+{
+    return RankForWeapon(xPickupWeapon) < RankForWeapon(xHeldWeapon);
+};
+
+float(float xHand, float xWeapon) TryEquipPickupWeapon =
+{
+    if(VRIsHandEmpty(other, xHand) ||
+       ShouldSwitchToPickupWeapon(VRGetEntWeapon(other, xHand), xWeapon))
+    {
+        VRSetWeapon(xHand, xWeapon);
+        W_SetCurrentAmmoFor(xHand);
+        return TRUE;
+    }
+
+    return FALSE;
 };
 
 /*
@@ -605,19 +631,17 @@ void() weapon_touch =
     {
         if(other.ishuman)
         {
-            if(VRIsHandEmpty(other, cVR_MainHand))
+            if(TryEquipPickupWeapon(cVR_MainHand, weaponId))
             {
-                VRSetWeapon(cVR_MainHand, weaponId);
-                W_SetCurrentAmmoFor(cVR_MainHand);
+                // Equipped in the right/main hand.
             }
             else if(VR_RightHandWeaponsOnly(other))
             {
                 W_SetCurrentAmmo();
             }
-            else if(VRIsHandEmpty(other, cVR_OffHand))
+            else if(TryEquipPickupWeapon(cVR_OffHand, weaponId))
             {
-                VRSetWeapon(cVR_OffHand, weaponId);
-                W_SetCurrentAmmoFor(cVR_OffHand);
+                // Equipped in the left/off hand.
             }
             else
             {
@@ -639,12 +663,7 @@ void() weapon_touch =
 
         if(VR_RightHandWeaponsOnly(other))
         {
-            if(VRIsHandEmpty(other, cVR_MainHand))
-            {
-                VRSetWeapon(cVR_MainHand, weaponId);
-                W_SetCurrentAmmoFor(cVR_MainHand);
-            }
-            else
+            if(!TryEquipPickupWeapon(cVR_MainHand, weaponId))
             {
                 W_SetCurrentAmmo();
             }
