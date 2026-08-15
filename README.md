@@ -22,6 +22,10 @@ The original Quake VR features and installation model still apply. This fork
 does not include the commercial Quake data files; players must provide their own
 `PAK0.PAK` and `PAK1.PAK` from a legitimate Quake installation.
 
+## Gameplay Demo
+
+[![GorillaQuake gameplay demo](https://img.youtube.com/vi/etGrZx4Dxc0/maxresdefault.jpg)](https://www.youtube.com/watch?v=etGrZx4Dxc0)
+
 ## Main Features
 
 * Smooth locomotion
