@@ -10,6 +10,18 @@
 
 [*(Visit the official landing page for videos and more information.)*](https://vittorioromeo.com/quakevr)
 
+## About This Fork
+
+This repository is an unofficial fork of Vittorio Romeo's Quake VR that adds
+Gorilla Locomotion: a VR hand-based movement mode inspired by Gorilla Tag. When
+enabled, the player can plant their hands against level geometry and push their
+body away from the surface, including jumping, climbing, and hand-driven
+movement while swimming.
+
+The original Quake VR features and installation model still apply. This fork
+does not include the commercial Quake data files; players must provide their own
+`PAK0.PAK` and `PAK1.PAK` from a legitimate Quake installation.
+
 ## Main Features
 
 * Smooth locomotion
