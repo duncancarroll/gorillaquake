@@ -2126,6 +2126,25 @@ void SV_GorillaResetState(
 
 void SV_GorillaClearAnchoredVelocity(edict_t* const ent);
 
+[[nodiscard]] bool SV_GorillaQuadDamageActive(edict_t* const ent)
+{
+    static int superDamageFinishedOffset = -2;
+    if(superDamageFinishedOffset == -2)
+    {
+        superDamageFinishedOffset = ED_FindFieldOffset("super_damage_finished");
+    }
+
+    if(superDamageFinishedOffset < 0)
+    {
+        return false;
+    }
+
+    const eval_t* const superDamageFinished =
+        GetEdictFieldValue(ent, superDamageFinishedOffset);
+    return superDamageFinished != nullptr &&
+           superDamageFinished->_float > qcvm->time;
+}
+
 bool SV_GorillaApplyLaunch(GorillaLocomotionState& state, edict_t* const ent,
     const qvec3& bodyMovement, const qvec3& collidingHandVelocity,
     const bool launchContactIntentional, qvec3& launch)
@@ -2205,16 +2224,27 @@ bool SV_GorillaApplyLaunch(GorillaLocomotionState& state, edict_t* const ent,
 
     launch = launchDirection * launchSourceSpeed * jumpMultiplier;
 
+    constexpr qfloat quadDoubleHeightVelocityScale = 1.41421356237_qf;
+    const bool quadJumpActive =
+        launch[2] > 0._qf && SV_GorillaQuadDamageActive(ent);
+    if(quadJumpActive)
+    {
+        launch[2] *= quadDoubleHeightVelocityScale;
+    }
+
     const qfloat launchSpeed = glm::length(launch);
+    const qfloat quadCapScale =
+        quadJumpActive ? quadDoubleHeightVelocityScale : 1._qf;
     const qfloat maxJumpSpeed =
-        static_cast<qfloat>(vr_gorilla_max_jump_speed.value);
+        static_cast<qfloat>(vr_gorilla_max_jump_speed.value) * quadCapScale;
     if(maxJumpSpeed > 0._qf && launchSpeed > maxJumpSpeed)
     {
         launch = safeNormalize(launch) * maxJumpSpeed;
     }
 
     const qfloat maxVerticalSpeed =
-        static_cast<qfloat>(vr_gorilla_max_vertical_speed.value);
+        static_cast<qfloat>(vr_gorilla_max_vertical_speed.value) *
+        quadCapScale;
     if(maxVerticalSpeed > 0._qf && launch[2] > maxVerticalSpeed)
     {
         const qfloat verticalScale = maxVerticalSpeed / launch[2];
